@@ -10,7 +10,7 @@ This notebook presents a Pytorch Word2Vec model, trainable following either a CB
 
 ### I - 2 Sentence Classification
 
-This notebook presents a Sentence classification model, on top of pretrained custom, Gensim and FastText Word2Vec models.
+This notebook presents a Sentence classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by pultiple stacked GRUs, and self-attention can be single or multi-head.
 
 
 ### I - 3 Language Modeling
