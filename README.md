@@ -20,3 +20,14 @@ This notebook presents a Sentence classification model, with word embedding perf
 ### I - 3 Language Modeling
 
 This notebook presents a Language Model on top of pretrained custom, Gensim and FastText Word2Vec models.
+
+
+### I - 4 Sequence labelling
+
+Applications are :
+    
+ - Contextual Word Embedding pre-training
+ - Part-of-speech Tagging
+ - Named Entity Recognition
+ - Automatic Value Extraction
+    
