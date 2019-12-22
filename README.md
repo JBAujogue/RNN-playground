@@ -26,7 +26,7 @@ This notebook presents a Language Model on top of pretrained custom, Gensim and 
 
 Applications are :
     
- - Contextual Word Embedding pre-training
+ - Sentence denoising
  - Part-of-speech Tagging
  - Named Entity Recognition
  - Automatic Value Extraction
