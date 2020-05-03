@@ -27,6 +27,7 @@ class SelfAttention(nn.Module):
         return attn_applied, weights
 
 
+
 class Attention(nn.Module):
     def __init__(self, embedding_dim, query_dim, 
                  dropout = 0, 
@@ -35,25 +36,30 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         
         # relevant quantities
-        self.method = method
+        self.method        = method
         self.embedding_dim = embedding_dim
-        self.query_dim = query_dim
-        self.output_dim = embedding_dim
+        self.output_dim    = embedding_dim
         
         # parameters
-        self.dropout = nn.Dropout(p = dropout)
+        self.dropout    = nn.Dropout(p = dropout)
         self.attn_layer = nn.Linear(embedding_dim + query_dim, embedding_dim)
-        self.attn_v = nn.Linear(embedding_dim, 1, bias = False)
-        self.act = F.softmax
+        self.attn_v     = nn.Linear(embedding_dim, 1, bias = False)
+        self.act        = F.softmax
         
-    def forward(self, embeddings, query = None):
+    def forward(self, embeddings, query):
+        '''embeddings       of size (batch_size, input_length, embedding_dim)
+           query (optional) of size (batch_size, 1, embedding_dim)
+        '''
+        # query is optional for this method
         if self.method == 'concat' :
-            weights = torch.cat((query.expand(-1, embeddings.size(1), -1), embeddings), 2) if query is not None else embeddings
+            weights = torch.cat((query, embeddings), 2) if query is not None else embeddings
             weights = self.attn_layer(weights).tanh()          # size (batch_size, input_length, embedding_dim)
             weights = self.act(self.attn_v(weights), dim = 1)  # size (batch_size, input_length, 1)
             weights = torch.transpose(weights, 1, 2)           # size (batch_size, 1, input_length)
+            
+        # query is necessary for this method
         elif self.method == 'dot' :
-            query = torch.transpose(query, 1, 2)               # size (batch_size, query_dim, 1)
+            query   = torch.transpose(query, 1, 2)             # size (batch_size, query_dim, 1)
             weights = torch.bmm(embeddings, query)             # size (batch_size, input_length, 1)
             weights = self.act(weights, dim = 1)               # size (batch_size, input_length, 1)
             weights = torch.transpose(weights, 1, 2)           # size (batch_size, 1, input_length)

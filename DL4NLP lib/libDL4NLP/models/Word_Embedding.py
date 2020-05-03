@@ -127,8 +127,12 @@ class Word2VecShell(nn.Module):
         - sg = 0 yields CBOW training procedure
         - sg = 1 yields Skip-Gram training procedure
     '''
-    def __init__(self, word2vec, device, sg = 0, context_size = 5, hidden_dim = 150, 
-                 criterion = nn.NLLLoss(size_average = False), optimizer = optim.SGD):
+    def __init__(self, word2vec, device, 
+                 sg = 0, 
+                 context_size = 5, 
+                 weight_tying = True,
+                 criterion = nn.NLLLoss(size_average = False), 
+                 optimizer = optim.SGD):
         super(Word2VecShell, self).__init__()
         self.device = device
         
@@ -138,11 +142,16 @@ class Word2VecShell(nn.Module):
         # training layers
         self.input_n_words  = (2 * context_size if sg == 0 else 1)
         self.output_n_words = (1 if sg == 0 else 2 * context_size)
-        self.linear_1  = nn.Linear(self.input_n_words * word2vec.embedding.weight.size(1), self.output_n_words * hidden_dim)
-        self.linear_2  = nn.Linear(hidden_dim, word2vec.lang.n_words)
+        self.word_size = word2vec.embedding.weight.size(1)
+        self.linear_1  = nn.Linear(self.input_n_words * self.word_size, self.output_n_words * self.word_size)
+        self.linear_2  = nn.Linear(self.word_size, word2vec.lang.n_words, bias = False)
+        
+        # weight tying
+        if weight_tying : self.linear_2.weight = self.word2vec.embedding.weight
         
         # training tools
         self.sg = sg
+        self.weight_tying = weight_tying
         self.criterion = criterion
         self.optimizer = optimizer
         
@@ -158,7 +167,7 @@ class Word2VecShell(nn.Module):
         embed = embed.view((batch.size(0), -1))       # size = (batch_size, self.input_n_words * embedding_dim)
         out = self.linear_1(embed)                    # size = (batch_size, self.output_n_words * hidden_dim) 
         out = out.view((batch.size(0),self.output_n_words, -1))
-        out = F.relu(out)                             # size = (batch_size, self.output_n_words, hidden_dim)                                         
+        if not self.weight_tying : out = F.relu(out)  # size = (batch_size, self.output_n_words, hidden_dim)                                         
         out = self.linear_2(out)                      # size = (batch_size, self.output_n_words, lang.n_words)
         out = torch.transpose(out, 1, 2)              # size = (batch_size, lang.n_words, self.output_n_words)
         log_probs = F.log_softmax(out, dim = 1)       # size = (batch_size, lang.n_words, self.output_n_words)

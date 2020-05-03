@@ -29,7 +29,7 @@ class HAN(nn.Module):
         self.embedding_dim = embedding_dim
         self.query_dim = query_dim
         self.hidden_dim = hidden_dim
-        self.output_dim = self.query_dim if (transf or (hops > 1 and query_dim != hidden_dim)) else hidden_dim
+        self.output_dim = self.query_dim if (self.query_dim > 0 and (transf or (hops > 1 and query_dim != hidden_dim))) else hidden_dim
         self.hops = hops
         self.share = share
         
@@ -49,12 +49,18 @@ class HAN(nn.Module):
         
     def singlePass(self, packed_embeddings, query, attn1, attn2): 
         # first attention
-        output, weights1 = attn1(packed_embeddings, query) # size (dialogue_length, 1, embedding_dim)
+        query1 = query.expand(packed_embeddings.size(0), 
+                              packed_embeddings.size(1), 
+                              query.size(2)) if query is not None else None
+        output, weights1 = attn1(packed_embeddings, query1) # size (dialogue_length, 1, embedding_dim)
         # intermediate biGRU
-        output, _ = self.bigru(output.transpose(0, 1))     # size (1, dialogue_length, hidden_dim)
+        output, _ = self.bigru(output.transpose(0, 1))      # size (1, dialogue_length, hidden_dim)
         output = self.dropout(output)
         # second attention
-        output, weights2 = attn2(output, query)            # size (1, 1, hidden_dim)
+        query2 = query.expand(output.size(0), 
+                              output.size(1), 
+                              query.size(2)) if query is not None else None
+        output, weights2 = attn2(output, query2)            # size (1, dialogue_length, hidden_dim)
         # output decision vector
         if self.transf is not None : output = self.transf(output) # size (1, 1, output_dim)
         if query is not None       : output = output + query
@@ -64,8 +70,10 @@ class HAN(nn.Module):
     def forward(self, packed_embeddings, query = None):
         weights1_list = []
         weights2_list = []
+        # perform attention loops
         if packed_embeddings is not None :
             for hop in range(self.hops) :
+                # perform attention pass
                 query, weights1, weights2 = self.singlePass(packed_embeddings, query, self.attn1[hop], self.attn2[hop])
                 weights1_list.append(weights1)
                 weights2_list.append(weights2)

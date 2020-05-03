@@ -18,10 +18,13 @@ import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
 
+from libDL4NLP.modules import RecurrentEncoder
+
 
 #-------------------------------------------------------------------#
 #                        Language model                             #
 #-------------------------------------------------------------------#
+
 
 
 class LanguageModel(nn.Module) :
@@ -71,7 +74,7 @@ class LanguageModel(nn.Module) :
         print(' '.join(result + ['\033[0m']))
         return
     
-    def generatePackedSentences(self, sentences, batch_size = 32, depth_range = (2, 10)) :
+    def generatePackedSentences(self, sentences, batch_size = 32, depth_range = (5, 10)) :
         sentences = [s[i: i+j] \
                      for s in sentences \
                      for i in range(len(s)-depth_range[0]) \
@@ -124,6 +127,7 @@ class LanguageModel(nn.Module) :
 
         def trainLoop(batch, optimizer, compute_accuracy = True):
             """Performs a training loop, with forward pass, backward pass and weight update."""
+            torch.cuda.empty_cache()
             optimizer.zero_grad()
             self.zero_grad()
             log_probs = computeLogProbs(batch[0])

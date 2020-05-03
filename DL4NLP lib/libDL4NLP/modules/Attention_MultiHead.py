@@ -8,7 +8,7 @@ from . import SelfAttention, AdditiveAttention
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, embedding_dim, n_head = 1, penalization = None, dropout = 0): 
+    def __init__(self, embedding_dim, n_head = 1, penalization = False, dropout = 0): 
         super(MultiHeadSelfAttention, self).__init__()
         
         # relevant quantities
@@ -30,9 +30,9 @@ class MultiHeadSelfAttention(nn.Module):
     
     def forward(self, embeddings, penal = False, device = None):
         outputs = [attn(embeddings) for attn in self.attn_list]
-        applied = torch.cat([out[0] for out in outputs], dim = 2) # size (batch_size, 1, n_heads * embedding_dim)
+        applied = torch.cat([out[0] for out in outputs], dim = 1) # size (batch_size, n_heads, embedding_dim)
         weights = torch.cat([out[1] for out in outputs], dim = 1) # size (batch_size, n_heads, input_length)
-        if (self.penalization is not None) and penal and self.n_head > 1 :
+        if self.penalization and penal and self.n_head > 1 :
             penal = self.compute_penalty(weights, device)
             return applied, weights, penal
         elif penal : 

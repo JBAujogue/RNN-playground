@@ -52,9 +52,10 @@ class TextClassifier(nn.Module) :
                                           n1_layers, 
                                           dropout, 
                                           bidirectional = True)
+        self.query_dim = (self.context.output_dim if hops > 1 else 0)
         self.attention = HAN(embedding_dim = self.context.output_dim,
                              hidden_dim = hidden2_dim,
-                             query_dim = 0, # self.context.output_dim,
+                             query_dim = self.query_dim,
                              n_layers = n2_layers,
                              hops = hops,
                              share = share,
@@ -72,35 +73,37 @@ class TextClassifier(nn.Module) :
         self.device = device
         self.to(device)
         
+
     def nbParametres(self) :
         return sum([p.data.nelement() for p in self.parameters() if p.requires_grad == True])
     
-    def showAttention(self, words, attn) :
-        for i in range(attn.size(1)) :
-            fig, ax  = plt.subplots()
-            im       = heatmap(np.array(attn[:, i, :].data.cpu().numpy()),  [' '], words, ax=ax, cmap="YlGn", cbarlabel="harvest [t/year]")
-            texts    = annotate_heatmap(im, valfmt="{x:.2f}")
-            fig.tight_layout()
-            plt.show()
-        return
-        
-    def forward(self, text, show_attention = False) :
+    # main method
+    def forward(self, text, attention_method = None) :
         '''classifies a sentence as string'''
+        # tokenize, embed and contextualize
         sentences        = self.tokenizer(text)
         embeddings       = [self.word2vec(words, self.device).squeeze(0) for words in sentences] # list of tensors of size (1, n_words, embedding_dim)
         embeddings       = nn.utils.rnn.pad_sequence(embeddings, batch_first = True, padding_value = 0)  # size (n_sentences, n_words, embedding_dim)
         hiddens, _       = self.context(embeddings, enforce_sorted = False) # size (n_sentences, n_words, embedding_dim)
-        attended, w1, w2 = self.attention(hiddens)  # size (1, 1, embedding_dim)
+        #init query whether necessary
+        if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
+        else                  : query = None
+        # compute attention
+        attended, w1, w2 = self.attention(hiddens, query)
         if self.bin_mode : prediction = self.act(self.out(attended).view(-1)).data.topk(1)[0].item()
         else             : prediction = self.act(self.out(attended.squeeze(1)), dim = 1).data.topk(1)[1].item()
-        if show_attention : self.showAttention(words, atn)
+        # display attention weights
+        if attention_method is not None :
+            attn_words     = [np.array(s.view(-1).data.cpu().numpy()) for s in w1[0]]
+            attn_sentences = np.array(w2[0].view(-1).data.cpu().numpy())
+            attention_method(attn_words, attn_sentences, sentences)
         return prediction
     
+    # load data
     def generatePaddedTexts(self, texts) :
         padded_data = []
         for text, label in texts :
-            pack0 = self.tokenizer(text)
-            pack0 = [[self.word2vec.lang.getIndex(w) for w in words] for words in pack0]
+            pack0 = [[self.word2vec.lang.getIndex(w) for w in words] for words in text]
             pack0 = [[w for w in words if w is not None] for words in pack0]
             lengths = torch.tensor([len(p) for p in pack0])               # size = (text_length) 
             pack0 = list(itertools.zip_longest(*pack0, fillvalue = self.word2vec.lang.getIndex('PADDING_WORD')))
@@ -111,16 +114,34 @@ class TextClassifier(nn.Module) :
             padded_data.append([[pack0, lengths], pack1])
         return padded_data
     
+    # compute model perf
     def compute_accuracy(self, texts) :
-        #batches = self.generatePaddedTexts(texts)
+        def compute_batch_accuracy(batch, target) :
+            torch.cuda.empty_cache()
+            # embed and contextualize
+            embeddings       = self.word2vec.embedding(batch[0].to(self.device))
+            hiddens, _       = self.context(embeddings, lengths = batch[1].to(self.device), enforce_sorted = False)
+            #init query whether necessary
+            if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
+            else                  : query = None
+            # compute attention
+            attended, w1, w2 = self.attention(hiddens, query)
+            # compute score
+            if self.bin_mode : 
+                pred  = self.act(self.out(attended).view(-1)).data.topk(1)[0].item()
+                score = (abs(target.item() - pred) < 0.5)
+            else : 
+                pred  = self.act(self.out(attended.squeeze(1)), dim = 1).data.topk(1)[1].item()
+                score = (target.item() == pred)
+            return score
+
+        # --- main ---
+        batches = self.generatePaddedTexts(texts)
         score = 0
-        for text, label in texts :
-            predict = self(text)
-            if self.bin_mode : score += (abs(label - predict) < 0.5)
-            else             : score += (label == predict)
+        for batch, target in batches : score += compute_batch_accuracy(batch, target)
         return score * 100 / len(texts)
     
-    
+    # fit model
     def fit(self, batches, iters = None, epochs = None, lr = 0.025, random_state = 42,
               print_every = 10, compute_accuracy = True):
         """Performs training over a given dataset and along a specified amount of loops"""
@@ -136,9 +157,15 @@ class TextClassifier(nn.Module) :
             return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
         
         def computeLogProbs(batch) :
+            # embed and contextualize
             embeddings       = self.word2vec.embedding(batch[0].to(self.device))
             hiddens, _       = self.context(embeddings, lengths = batch[1].to(self.device), enforce_sorted = False)
-            attended, w1, w2 = self.attention(hiddens)
+            #init query whether necessary
+            if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
+            else                  : query = None
+            # compute attention
+            attended, w1, w2 = self.attention(hiddens, query)
+            # compute log prob
             if self.bin_mode : return self.out(attended).view(-1)
             else             : return F.log_softmax(self.out(attended.squeeze(1)))
 
@@ -155,6 +182,7 @@ class TextClassifier(nn.Module) :
 
         def trainLoop(batch, optimizer, compute_accuracy = True):
             """Performs a training loop, with forward pass, backward pass and weight update."""
+            torch.cuda.empty_cache()
             optimizer.zero_grad()
             self.zero_grad()
             log_probs = computeLogProbs(batch[0])
