@@ -1,9 +1,9 @@
-
-
 Inspiration pour la construction de la librairie :
 https://github.com/pytorch/fairseq
 https://github.com/allenai/allennlp
 https://www.dabeaz.com/modulepackage/ModulePackage.pdf
+
+**Le chemin C:\Users\Jb\Desktop\NLP\DL4NLP\lib est ajouté au path**
 
 
 Dans le tutorial complet on doit avoir :
