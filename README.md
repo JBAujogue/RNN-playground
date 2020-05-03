@@ -1,32 +1,25 @@
 # Deep Learning for NLP
 A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks
 
-### Part I
+#### Part I
 
 1. Word Embedding
-
 2. Sentence Classification
-
 3. Language Modeling
-
 4. Sequence Labelling
 
-
-### Part II
+#### Part II
 
 1. Text Classification
+2. Sequence to sequence
 
-2. <font color=orange>**Sequence to sequence**</font>
-
-
-### Part III
+#### Part III
 
 8. Abstractive Summarization
-
 9. Question Answering
-
 10. Chatbot
 
+***
 
 ## Part I 
 
