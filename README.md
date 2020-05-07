@@ -1,5 +1,6 @@
 # Deep Learning for NLP
-A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks
+A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks.
+
 
 
 ## Part I 
@@ -10,25 +11,31 @@ This notebook presents a Pytorch Word2Vec model, trainable following either a CB
 
 ### I - 2 Sentence Classification
 
-This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through single or multi-head self-attention. Experimentations include :
-    
+This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through self-attention. Experimentations include :
+ 
+ - Binary and Multi-Class Classification
+ - Minibatch-enabled training
  - Bidirectional GRUs + Self-Attention
  - Multi-Head Self-Attention
  - Penalization over distinct heads
  - Collaborative vs. Competitive head behavior
+ - 2 methods for Attention Visualization
 
 
 ### I - 3 Language Modeling
 
 This notebook presents a Language Model on top of pretrained custom, Gensim and FastText Word2Vec models.
 
+ - Next Word Prediction
+ - Minibatch-enabled training
+ - Unidirectionnal GRUs
 
 ### I - 4 Sequence labelling
 
-Applications are :
-    
- - Sentence denoising
- - Part-of-speech Tagging
- - Named Entity Recognition
- - Automatic Value Extraction
+Experimentations include :
+   
+ - POS Tagging
+ - Token Auto-encoding following Cloze Task
+ - Minibatch-enabled training
+ - Bidirectionnal GRUs
     
