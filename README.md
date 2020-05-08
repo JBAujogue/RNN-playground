@@ -16,6 +16,7 @@ This notebook presents a Sentence Classification model, with word embedding perf
  - Binary and Multi-Class Classification
  - Minibatch-enabled training
  - Bidirectional GRUs + Self-Attention
+ - Highway connections in Self-Attention
  - Multi-Head Self-Attention
  - Penalization over distinct heads
  - Collaborative vs. Competitive head behavior
@@ -38,4 +39,5 @@ Experimentations include :
  - Token Auto-encoding following Cloze Task
  - Minibatch-enabled training
  - Bidirectionnal GRUs
+ - Highway connections in Self-Attention
     
