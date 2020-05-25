@@ -8,30 +8,39 @@ from . import SelfAttention, AdditiveAttention
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, embedding_dim, n_head = 1, penalization = False, dropout = 0): 
-        super(MultiHeadSelfAttention, self).__init__()
+    def __init__(self, emb_dim, 
+                 n_head = 1, 
+                 penalization = False, 
+                 dropout = 0): 
+        super().__init__()
         
         # relevant quantities
-        self.embedding_dim = embedding_dim
-        self.output_dim = n_head * embedding_dim
+        self.emb_dim = emb_dim
+        self.out_dim = n_head * emb_dim
         self.penalization = penalization
         self.n_head = n_head
         
-        # parameters
-        self.attn_list = nn.ModuleList([SelfAttention(embedding_dim, dropout) for i in range(n_head)])
+        # layers
+        self.attn_list = nn.ModuleList([SelfAttention(emb_dim, dropout) for i in range(n_head)])
         
-    def compute_penalty(self, weights, device = None) :
-        weights_t = torch.transpose(weights, 1, 2)
-        def_pos = [torch.mm(weights[i], weights_t[i]) for i in range(weights.size(0))] # size (minibatch_size, n_heads, n_heads)
-        ide = Variable(torch.eye(self.n_head))
+    def compute_penalty(self, weights, 
+                        device = None) :
+        weights_t = weights.transpose(1, 2)
+        def_pos   = [torch.mm(weights[i], weights_t[i]) for i in range(weights.size(0))] # size (batch_size, n_heads, n_heads)
+        ide       = Variable(torch.eye(self.n_head))
         if device is not None : ide = ide.to(device)
-        penal = torch.sum(torch.cat([torch.norm(mmt - ide).view(1) for mmt in def_pos]))
+        penal     = torch.sum(torch.cat([torch.norm(mmt - ide).view(1) for mmt in def_pos]))
         return penal
     
-    def forward(self, embeddings, penal = False, device = None):
+    def forward(self, embeddings, 
+                penal = False, 
+                device = None):
+        # compute self-attention
         outputs = [attn(embeddings) for attn in self.attn_list]
         applied = torch.cat([out[0] for out in outputs], dim = 1) # size (batch_size, n_heads, embedding_dim)
         weights = torch.cat([out[1] for out in outputs], dim = 1) # size (batch_size, n_heads, input_length)
+        
+        # compute penalty
         if self.penalization and penal and self.n_head > 1 :
             penal = self.compute_penalty(weights, device)
             return applied, weights, penal

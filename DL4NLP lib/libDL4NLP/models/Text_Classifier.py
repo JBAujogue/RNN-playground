@@ -31,8 +31,8 @@ class TextClassifier(nn.Module) :
     def __init__(self, device, tokenizer, word2vec, 
                  hidden1_dim = 100,
                  hidden2_dim = 100,
-                 n1_layers = 1, 
-                 n2_layers = 1,
+                 n1_layer = 1, 
+                 n2_layer = 1,
                  hops = 1, 
                  share = True,
                  transf = False,
@@ -47,22 +47,24 @@ class TextClassifier(nn.Module) :
         self.bin_mode  = (n_class == 'binary')
         self.tokenizer = tokenizer
         self.word2vec  = word2vec
-        self.context   = RecurrentEncoder(self.word2vec.output_dim, 
-                                          hidden1_dim, 
-                                          n1_layers, 
-                                          dropout, 
-                                          bidirectional = True)
-        self.query_dim = (self.context.output_dim if hops > 1 else 0)
-        self.attention = HAN(embedding_dim = self.context.output_dim,
-                             hidden_dim = hidden2_dim,
-                             query_dim = self.query_dim,
-                             n_layers = n2_layers,
-                             hops = hops,
-                             share = share,
-                             transf = transf,
-                             dropout = dropout)
-        self.out       = nn.Linear(self.attention.output_dim, (1 if self.bin_mode else n_class))
-        self.act       = F.sigmoid if self.bin_mode else F.softmax
+        self.context   = RecurrentEncoder(
+            emb_dim = self.word2vec.out_dim, 
+            hid_dim = hidden1_dim, 
+            n_layer = n1_layer, 
+            dropout = dropout, 
+            bidirectional = True)
+        self.query_dim = (self.context.out_dim if hops > 1 else 0)
+        self.attention = HAN(
+            emb_dim   = self.context.out_dim,
+            hid_dim   = hidden2_dim,
+            query_dim = self.query_dim,
+            n_layer   = n2_layer,
+            hops      = hops,
+            share     = share,
+            transf    = transf,
+            dropout   = dropout)
+        self.out = nn.Linear(self.attention.out_dim, (1 if self.bin_mode else n_class))
+        self.act = F.sigmoid if self.bin_mode else F.softmax
         
         # optimizer
         if self.bin_mode : self.criterion = nn.BCEWithLogitsLoss(size_average = False)
@@ -78,20 +80,24 @@ class TextClassifier(nn.Module) :
         return sum([p.data.nelement() for p in self.parameters() if p.requires_grad == True])
     
     # main method
-    def forward(self, text, attention_method = None) :
+    def forward(self, text, 
+                attention_method = None) :
         '''classifies a sentence as string'''
         # tokenize, embed and contextualize
-        sentences        = self.tokenizer(text)
-        embeddings       = [self.word2vec(words, self.device).squeeze(0) for words in sentences] # list of tensors of size (1, n_words, embedding_dim)
-        embeddings       = nn.utils.rnn.pad_sequence(embeddings, batch_first = True, padding_value = 0)  # size (n_sentences, n_words, embedding_dim)
-        hiddens, _       = self.context(embeddings, enforce_sorted = False) # size (n_sentences, n_words, embedding_dim)
+        sentences   = self.tokenizer(text)
+        embeddings  = [self.word2vec(words, self.device).squeeze(0) for words in sentences] # list of tensors of size (1, n_words, embedding_dim)
+        embeddings  = nn.utils.rnn.pad_sequence(embeddings, batch_first = True, padding_value = 0)  # size (n_sentences, n_words, embedding_dim)
+        hiddens, _  = self.context(embeddings, enforce_sorted = False) # size (n_sentences, n_words, embedding_dim)
+
         #init query whether necessary
         if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
         else                  : query = None
+
         # compute attention
         attended, w1, w2 = self.attention(hiddens, query)
         if self.bin_mode : prediction = self.act(self.out(attended).view(-1)).data.topk(1)[0].item()
         else             : prediction = self.act(self.out(attended.squeeze(1)), dim = 1).data.topk(1)[1].item()
+
         # display attention weights
         if attention_method is not None :
             attn_words     = [np.array(s.view(-1).data.cpu().numpy()) for s in w1[0]]
@@ -142,8 +148,13 @@ class TextClassifier(nn.Module) :
         return score * 100 / len(texts)
     
     # fit model
-    def fit(self, batches, iters = None, epochs = None, lr = 0.025, random_state = 42,
-              print_every = 10, compute_accuracy = True):
+    def fit(self, batches, 
+            iters = None, 
+            epochs = None, 
+            lr = 0.025, 
+            random_state = 42,
+            print_every = 10, 
+            compute_accuracy = True):
         """Performs training over a given dataset and along a specified amount of loops"""
         def asMinutes(s):
             m = math.floor(s / 60)

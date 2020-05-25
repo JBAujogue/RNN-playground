@@ -3,28 +3,31 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from libDL4NLP.misc import Highway, HighwayQ
+
 
 class SelfAttention(nn.Module):
-    def __init__(self, embedding_dim, dropout = 0): 
-        super(SelfAttention, self).__init__()
-        
+    def __init__(self, emb_dim, 
+                 dropout = 0): 
+        super().__init__()
+
         # relevant quantities
-        self.embedding_dim = embedding_dim
-        self.output_dim = embedding_dim
-        
-        # parameters
+        self.emb_dim = emb_dim
+        self.out_dim = emb_dim
+
+        # layers
         self.dropout = nn.Dropout(p = dropout)
-        self.attn_layer = nn.Linear(embedding_dim, embedding_dim)
-        self.attn_v = nn.Linear(embedding_dim, 1, bias = False)
-        self.act = F.softmax
-        
-    def forward(self, embeddings):
-        weights = self.attn_layer(embeddings).tanh()       # size (batch_size, input_length, embedding_dim)
-        weights = self.act(self.attn_v(weights), dim = 1)  # size (batch_size, input_length, 1)
-        weights = torch.transpose(weights, 1, 2)           # size (batch_size, 1, input_length)
-        attn_applied = torch.bmm(weights, embeddings)      # size (batch_size, 1, embedding_dim)
-        attn_applied = self.dropout(attn_applied)
-        return attn_applied, weights
+        self.key     = nn.Sequential(Highway(emb_dim), nn.Linear(emb_dim, 1, bias = False))
+        self.value   = Highway(emb_dim, dropout = dropout)
+        self.act     = F.softmax
+
+    def forward(self, embeddings):           # size (batch_size, input_length, emb_dim)
+        weights = self.key(embeddings)       # size (batch_size, input_length, 1) 
+        weights = self.act(weights, dim = 1) # size (batch_size, input_length, 1)
+        weights = weights.transpose(1, 2)    # size (batch_size, 1, input_length)
+        values  = self.value(embeddings)     # size (batch_size, input_length, emb_dim)
+        applied = torch.bmm(weights, values) # size (batch_size, 1, emb_dim)
+        return applied, weights
 
 
 
@@ -42,8 +45,9 @@ class Attention(nn.Module):
         
         # parameters
         self.dropout    = nn.Dropout(p = dropout)
-        self.attn_layer = nn.Linear(embedding_dim + query_dim, embedding_dim)
+        self.attn_layer = HighwayQ(embedding_dim, query_dim, dropout)
         self.attn_v     = nn.Linear(embedding_dim, 1, bias = False)
+        self.value      = HighwayQ(embedding_dim, query_dim, dropout)
         self.act        = F.softmax
         
     def forward(self, embeddings, query):
@@ -52,8 +56,7 @@ class Attention(nn.Module):
         '''
         # query is optional for this method
         if self.method == 'concat' :
-            weights = torch.cat((query, embeddings), 2) if query is not None else embeddings
-            weights = self.attn_layer(weights).tanh()          # size (batch_size, input_length, embedding_dim)
+            weights = self.attn_layer(embeddings, query)       # size (batch_size, input_length, embedding_dim)
             weights = self.act(self.attn_v(weights), dim = 1)  # size (batch_size, input_length, 1)
             weights = torch.transpose(weights, 1, 2)           # size (batch_size, 1, input_length)
             

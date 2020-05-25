@@ -30,7 +30,7 @@ from libDL4NLP.modules import RecurrentEncoder, SelfAttention, MultiHeadSelfAtte
 class SentenceClassifier(nn.Module) :
     def __init__(self, device, tokenizer, word2vec, 
                  hidden_dim = 100, 
-                 n_layers = 1, 
+                 n_layer = 1, 
                  n_attn_heads = 1, 
                  attn_penalization = False,
                  n_class = 2, 
@@ -38,25 +38,30 @@ class SentenceClassifier(nn.Module) :
                  class_weights = None, 
                  optimizer = optim.SGD
                  ):
-        super(SentenceClassifier, self).__init__()
+        super().__init__()
         
-        # embedding
+        # relevant quantities
         self.bin_mode  = (n_class == 'binary')
         self.opc       = (n_attn_heads == 'opc' and n_class != 'binary')
+        
+        # layers
         self.tokenize  = tokenizer
         self.word2vec  = word2vec
-        self.context   = RecurrentEncoder(embedding_dim = self.word2vec.output_dim, 
-                                          hidden_dim    = hidden_dim, 
-                                          n_layers      = n_layers, 
-                                          dropout       = dropout, 
-                                          bidirectional = True)
-        self.attention = MultiHeadSelfAttention(embedding_dim = self.context.output_dim, 
-                                                n_head        = (n_class if self.opc else n_attn_heads), 
-                                                penalization  = attn_penalization, 
-                                                dropout       = dropout)
-        self.out       = nn.Linear((self.context.output_dim if self.opc else self.attention.output_dim), 
-                                   (1 if self.opc or self.bin_mode else n_class))
-        self.act       = F.sigmoid if self.bin_mode else F.softmax
+        self.context   = RecurrentEncoder(
+            emb_dim = self.word2vec.out_dim,
+            hid_dim = hidden_dim, 
+            n_layer = n_layer, 
+            dropout = dropout, 
+            bidirectional = True)
+        self.attention = MultiHeadSelfAttention(
+            emb_dim      = self.context.out_dim, 
+            n_head       = (n_class if self.opc else n_attn_heads),
+            penalization = attn_penalization, 
+            dropout      = dropout)
+        self.out = nn.Linear(
+            (self.context.out_dim if self.opc else self.attention.out_dim), 
+            (1 if self.opc or self.bin_mode else n_class))
+        self.act = F.sigmoid if self.bin_mode else F.softmax
         
         # optimizer
         if self.bin_mode : self.criterion = nn.BCEWithLogitsLoss(size_average = False)
@@ -136,8 +141,8 @@ class SentenceClassifier(nn.Module) :
                 target = target.to(self.device).view(-1) # size (batch_size)
                 score  = sum([target[i].item() == log_ps[i].data.topk(1)[1].item() for i in range(target.size(0))])
             elif self.bin_mode : 
-                vect   = out.view(1, -1)         # size (batch_size, n_heads * embedding_dim)
-                vect   = self.out(vect).view(-1) # size (batch_size)
+                vect   = out.view(batch_size, -1)        # size (batch_size, n_heads * embedding_dim)
+                vect   = self.out(vect).view(-1)         # size (batch_size)
                 target = target.to(self.device).view(-1)
                 score  = sum(torch.abs(target - self.act(vect)) < 0.5).item()
             else :
@@ -180,10 +185,10 @@ class SentenceClassifier(nn.Module) :
                 vect   = self.out(out).squeeze(2) # size (batch_size, n_class)
                 log_ps = F.log_softmax(vect, dim = 1)  # size (batch_size, n_class)
             elif self.bin_mode : 
-                vect   = out.view(1, -1)    # size (batch_size, n_heads * embedding_dim)
-                log_ps = self.out(vect).view(-1) # size (batch_size)
+                vect   = out.view(batch_size, -1)      # size (batch_size, n_heads * embedding_dim)
+                log_ps = self.out(vect).view(-1)       # size (batch_size)
             else :
-                vect   = out.view(batch_size, -1) # size (batch_size, n_heads * embedding_dim)
+                vect   = out.view(batch_size, -1)      # size (batch_size, n_heads * embedding_dim)
                 vect   = self.out(vect)                # size (batch_size, n_class)
                 log_ps = F.log_softmax(vect, dim = 1)  # size (batch_size, n_class)
             return log_ps, penal

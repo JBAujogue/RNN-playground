@@ -6,41 +6,65 @@ from torch.autograd import Variable
 
 
 class RecurrentEncoder(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, n_layers = 1, dropout = 0, bidirectional = False): 
-        super(RecurrentEncoder, self).__init__()
+    def __init__(self, emb_dim, hid_dim, 
+                 n_layer = 1, 
+                 dropout = 0, 
+                 bidirectional = False): 
+        super().__init__()
         
         # relevant quantities
-        self.embedding_dim = embedding_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = hidden_dim # * (2 if bidirectional else 1)
-        self.n_layers   = n_layers
+        self.emb_dim = emb_dim
+        self.hid_dim = hid_dim
+        self.out_dim = hid_dim # * (2 if bidirectional else 1)
+        self.n_layer = n_layer
         self.bidirectional = bidirectional
 
         # layers
         self.dropout = nn.Dropout(p = dropout)
-        self.bigru = nn.GRU(embedding_dim, 
-                            hidden_dim, 
-                            n_layers,
-                            dropout = (0 if n_layers == 1 else dropout), 
-                            bidirectional = bidirectional,
-                            batch_first = False)
+        self.bigru = nn.GRU(
+            emb_dim, 
+            hid_dim, 
+            n_layer,
+            dropout = (0 if n_layer == 1 else dropout), 
+            bidirectional = bidirectional,
+            batch_first = False)
 
-    def forward(self, embeddings, lengths = None, hidden = None, enforce_sorted = True) :
-        embeddings = self.dropout(embeddings)          # size (batch_size, input_length, embedding_dim)
-        embeddings = embeddings.transpose(0, 1)        # size (input_length, batch_size, embedding_dim)
+        
+    def forward(self, embeddings, 
+                lengths = None, 
+                hidden = None, 
+                enforce_sorted = True) :
+        # embedding
+        embeddings = self.dropout(embeddings)    # size (batch_size, input_length, emb_dim)
+        embeddings = embeddings.transpose(0, 1)  # size (input_length, batch_size, emb_dim)
+
+        # packing
+        if lengths is not None : 
+            embeddings = nn.utils.rnn.pack_padded_sequence(
+                embeddings, 
+                lengths, 
+                batch_first = False, 
+                enforce_sorted = enforce_sorted)
+            
         # GRU pass
-        if lengths is not None : embeddings = torch.nn.utils.rnn.pack_padded_sequence(embeddings, 
-                                                                                      lengths, 
-                                                                                      batch_first = False, 
-                                                                                      enforce_sorted = enforce_sorted)
         outputs, hidden = self.bigru(embeddings, hidden)
-        if lengths is not None : outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs, batch_first = False)
+        
+        # padding
+        if lengths is not None : 
+            outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs, batch_first = False)
+        
         # Sum bidirectional GRU outputs
-        if self.bidirectional : outputs = outputs[:, :, :self.hidden_dim] + outputs[:, : ,self.hidden_dim:]
+        if self.bidirectional : outputs = outputs[:, :, :self.hid_dim] + outputs[:, : ,self.hid_dim:]
+        
+        # batch first
+        outputs = outputs.transpose(0, 1) # size (batch_size, input_length, out_dim)
+        
         # dropout
-        outputs = self.dropout(outputs.transpose(0, 1)) # size (batch_size, input_length, output_dim)
-        hidden  = self.dropout(hidden)        # Warning : size (n_layers * num_directions, batch_size, hidden_dim)
+        outputs = self.dropout(outputs) # size (batch_size, input_length, out_dim)
+        hidden  = self.dropout(hidden)  # size (n_layer * num_dir, batch_size, hid_dim)
         return outputs, hidden
+    
+    
     
 # -- OLD --
 class RecurrentWordsEncoder(nn.Module):

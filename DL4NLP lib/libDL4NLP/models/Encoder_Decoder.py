@@ -39,20 +39,43 @@ class EncoderDecoder(nn.Module) :
                  bound = 25,
                  dropout = 0,
                  decoder_warm_start = True,
-                 decoder_attention = True,
+                 decoder_type = None,
                  optimizer = optim.SGD
                  ):
         super(EncoderDecoder, self).__init__()
         #relevant quantities
         self.decoder_warm_start = decoder_warm_start
-        
+        self.decoder_type = decoder_type
         # modules
         self.tokenizer    = tokenizer
         self.word2vec_in  = word2vec_in
         self.word2vec_out = word2vec_out
-        self.context      = RecurrentEncoder(word2vec_in.output_dim, hidden_dim_in, n_layers_in, dropout, bidirectional = True)
-        if decoder_attention : self.decoder = AttnDecoder(word2vec_out, hidden_dim_in, hidden_dim_out, n_layers_out, dropout, bound)
-        else :                 self.decoder = Decoder(word2vec_out, hidden_dim_out, n_layers_out, dropout, bound)
+        self.context      = RecurrentEncoder(embedding_dim = word2vec_in.output_dim, 
+                                             hidden_dim    = hidden_dim_in,
+                                             n_layers      = n_layers_in,
+                                             dropout       = dropout, 
+                                             bidirectional = True)
+
+        if self.decoder_type == 'smooth' : 
+            self.decoder = SmoothAttnDecoder(word2vec_out, 
+                                             hidden_dim_in, 
+                                             hidden_dim_out, 
+                                             n_layers_out, 
+                                             dropout, 
+                                             bound)
+        elif self.decoder_type == 'attention' : 
+            self.decoder = AttnDecoder(word2vec_out, 
+                                       hidden_dim_in, 
+                                       hidden_dim_out, 
+                                       n_layers_out, 
+                                       dropout, 
+                                       bound)
+        else : 
+            self.decoder = Decoder(word2vec_out, 
+                                   hidden_dim_out, 
+                                   n_layers_out, 
+                                   dropout,
+                                   bound)
         
         # optimizer
         self.ignore_index_in  = self.word2vec_in.lang.getIndex('PADDING_WORD')
@@ -84,25 +107,33 @@ class EncoderDecoder(nn.Module) :
                 hidden = torch.sum(hidden, dim = 1) # size (n_layers, batch_size, hidden_dim)
             hidden = hidden[-self.decoder.n_layers:]
         else : hidden = None    
-        ## compute answer
-        indices, attn = self.decoder(hidden, embeddings, self.device)
-        attn = np.array(attn[0].data.cpu().numpy()) # size (input_length, output_length)
-        words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
+        # compute answer
+        if self.decoder_type in ['smooth', 'attention'] : 
+            indices, attn = self.decoder(hidden, embeddings, self.device)
+            words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
+            # display attention
+            if attention_method is not None : 
+                attn = np.array(attn[0].data.cpu().numpy()) # size (input_length, output_length)
+                attention_method(attn, words_out, words)
+        else :
+            indices   = self.decoder(hidden, self.device)
+            words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
+        # convert answer to string
         answer = ' '.join(words_out)
-        if attention_method is not None : attention_method(attn, words_out, words)
         return answer
 
     # load data
     def generatePackedSentences(self, sentences, batch_size = 32) : 
+        '''forms minibatches of sentences, where input sentences must be pre-tokenized'''
         sentences.sort(key = lambda s: len(s[1]), reverse = True)
         packed_data = []
         for i in range(0, len(sentences), batch_size) :
             # prepare input and target pack
             pack = sentences[i:i + batch_size]
-            pack.sort(key = lambda s: len(self.tokenizer(s[0])), reverse = True)
-            pack0 = [[self.word2vec_in.lang.getIndex(w) for w in self.tokenizer(qa[0])] for qa in pack]
+            pack.sort(key = lambda s: len(s[0]), reverse = True)
+            pack0 = [[self.word2vec_in.lang.getIndex(w) for w in qa[0]] for qa in pack]
             pack0 = [[w for w in words if w is not None] for words in pack0]
-            pack1 = [[self.word2vec_out.lang.getIndex(w) for w in self.tokenizer(qa[1]) + ['EOS']] for qa in pack]
+            pack1 = [[self.word2vec_out.lang.getIndex(w) for w in qa[1] + ['EOS']] for qa in pack]
             pack1 = [[w for w in words if w is not None] for words in pack1]
             lengths0 = torch.tensor([len(p) for p in pack0])           # size (batch_size) 
             lengths1 = torch.tensor([len(p) for p in pack1])           # size (batch_size) 
@@ -116,9 +147,8 @@ class EncoderDecoder(nn.Module) :
     
     # compute model perf
     def compute_accuracy(self, sentences, batch_size = 32) :
-        batches = self.generatePackedSentences(sentences, batch_size)
-        score = 0
-        for batch in batches :
+        def compute_batch_accuracy(batch) :
+            torch.cuda.empty_cache()
             input, input_l, target, target_l = batch
             target = target.to(self.device)
             # encode sentences
@@ -132,18 +162,34 @@ class EncoderDecoder(nn.Module) :
                 hidden = hidden[-self.decoder.n_layers:]
             else : hidden = None  
             # compute answers
-            answers = torch.zeros(target.size(), dtype = torch.long)
-            word_index = self.word2vec_out.lang.getIndex('SOS')
-            word_index = Variable(torch.LongTensor([word_index])) # size (1)
-            word_index = word_index.expand(target.size(1))        # size (batch_size)
+            answers   = torch.zeros(target.size(), dtype = torch.long)
+            SOS_token = self.word2vec_out.lang.getIndex('SOS')
+            word      = self.decoder.initWordTensor([SOS_token]*target.size(1), device = self.device) 
+            # word generation
             for t in range(target.size(0)) :
                 # compute word probs
-                log_prob, hidden, atn = self.decoder.generateWord(hidden, embeddings, word_index.unsqueeze(1).to(self.device))
-                word_index = log_prob.topk(1, dim = 1)[1].view(-1) # size (batch_size)
-                answers[t] = word_index
-            # update score
-            score += sum([sum(answers[:l, i].data.cpu() == target[:l, i].data.cpu()) == l 
+                if self.decoder_type == 'smooth' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                    word = F.softmax(vect, dim = 1)   # size (batch_size, lang_size)
+                    best = vect.topk(1, dim = 1)[1]   # size (batch_size, 1)
+                elif self.decoder_type == 'attention' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                    word = vect.topk(1, dim = 1)[1]   # size (batch_size, 1)
+                    best = word                       # size (batch_size, 1)
+                else :
+                    vect, hidden = self.decoder.generateWord(hidden, word)
+                    word = vect.topk(1, dim = 1)[1]   # size (batch_size, 1)
+                    best = word                       # size (batch_size, 1)
+                answers[t] = best.view(-1)
+            # compute score
+            score = sum([sum(answers[:l, i].data.cpu() == target[:l, i].data.cpu()) == l 
                           for i, l in enumerate(target_l.data.cpu().tolist())]).item()
+            return score
+        
+        # -- main --
+        batches = self.generatePackedSentences(sentences, batch_size)
+        score = 0
+        for batch in batches : score += compute_batch_accuracy(batch)
         return score * 100 / len(sentences)
     
     # fit model
@@ -161,12 +207,13 @@ class EncoderDecoder(nn.Module) :
             rs = s/percent - s
             return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
         
-        def computeSuccess(log_probs, targets) :
-            success = sum([self.ignore_index_out != targets[i].item() == log_probs[i].topk(1)[1].item() \
+        def computeSuccess(log_prob, targets) :
+            success = sum([self.ignore_index_out != targets[i].item() == log_prob[i].topk(1)[1].item() \
                            for i in range(targets.size(0))])
             return success
         
         def computeLogProbs(batch, tf_ratio = 0, compute_accuracy = True) :
+            torch.cuda.empty_cache()
             loss = 0
             success = 0
             forcing = (random.random() < tf_ratio)
@@ -183,19 +230,32 @@ class EncoderDecoder(nn.Module) :
                 hidden = hidden[-self.decoder.n_layers:]
             else : hidden = None  
             # compute answers
-            word_index = self.word2vec_out.lang.getIndex('SOS')
-            word_index = Variable(torch.LongTensor([word_index])) # size (1)
-            word_index = word_index.expand(target.size(1))        # size (batch_size)
+            SOS_token = self.word2vec_out.lang.getIndex('SOS')
+            word      = self.decoder.initWordTensor([SOS_token]*target.size(1), device = self.device) 
             for t in range(target.size(0)) :
-                # compute word probs
-                log_prob, hidden, atn = self.decoder.generateWord(hidden, embeddings, word_index.unsqueeze(1).to(self.device))
+                if self.decoder_type == 'smooth' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                    # apply teacher forcing
+                    if forcing : word = self.decoder.initWordTensor(target[t].data.tolist(), device = self.device) # size (batch_size, 1) 
+                    else       : word = F.softmax(vect, dim = 1) # size (batch_size, lang_size)
+                    
+                elif self.decoder_type == 'attention' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                    # apply teacher forcing
+                    if forcing : word = target[t].view(-1, 1)    # size (batch_size, 1) 
+                    else       : word = vect.topk(1, dim = 1)[1] # size (batch_size, 1)
+                        
+                else :
+                    vect, hidden = self.decoder.generateWord(hidden, word)
+                    # apply teacher forcing
+                    if forcing : word = target[t].view(-1, 1)    # size (batch_size, 1) 
+                    else       : word = vect.topk(1, dim = 1)[1] # size (batch_size, 1)
+                
                 # compute loss
-                loss += self.criterion(log_prob, target[t])
+                log_prob = F.log_softmax(vect, dim = 1)
+                loss    += self.criterion(log_prob, target[t])
                 if compute_accuracy : success += computeSuccess(log_prob, target[t])
-                # apply teacher forcing
-                if forcing : word_index = target[t]                             # size (batch_size) 
-                else       : word_index = log_prob.topk(1, dim = 1)[1].view(-1) # size (batch_size)
-            return loss, success       
+            return loss, success
 
         def printScores(start, iter, iters, tot_loss, tot_loss_words, print_every, compute_accuracy) :
             avg_loss = tot_loss / print_every
@@ -205,7 +265,7 @@ class EncoderDecoder(nn.Module) :
             return 0, 0
 
         def trainLoop(batch, optimizer, tf_ratio = 0, compute_accuracy = True):
-            """Performs a training loop, with forward pass, backward pass and weight update."""
+            """Performs a training loop, with forward pass, backward pass and weight update"""
             optimizer.zero_grad()
             self.zero_grad()
             total = torch.sum(batch[-1]).item()

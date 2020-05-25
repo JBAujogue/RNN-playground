@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+from . import Attention, AdditiveAttention 
+
 
 class SmoothAttnDecoder(nn.Module):
     '''Transforms a vector into a sequence of words'''

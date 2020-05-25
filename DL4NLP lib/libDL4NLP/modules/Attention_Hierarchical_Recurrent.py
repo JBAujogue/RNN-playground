@@ -16,7 +16,7 @@ class HAN(nn.Module):
     - hiérarchique avec bi-GRU entre les deux niveaux d'attention
     - globalement multi-hopé, où il est possible d'effectuer plusieurs passes pour accumuler de l'information
     '''
-    def __init__(self, embedding_dim, hidden_dim, query_dim,
+    def __init__(self, emb_dim, hidden_dim, query_dim,
                  n_layers = 1,
                  hops = 1,
                  share = True,
@@ -26,33 +26,34 @@ class HAN(nn.Module):
         super(HAN, self).__init__()
         
         # dimensions
-        self.embedding_dim = embedding_dim
+        self.emb_dim = emb_dim
         self.query_dim = query_dim
         self.hidden_dim = hidden_dim
-        self.output_dim = self.query_dim if (self.query_dim > 0 and (transf or (hops > 1 and query_dim != hidden_dim))) else hidden_dim
+        self.output_dim = self.query_dim if (self.query_dim > 0 and \
+                                            (transf or (hops > 1 and query_dim != hidden_dim))) \
+                                         else hidden_dim
         self.hops = hops
         self.share = share
         
         # modules
         self.dropout = nn.Dropout(p = dropout)
         # first attention module
-        if share : self.attn1 = nn.ModuleList([Attention(embedding_dim, query_dim, dropout)] * hops)
-        else     : self.attn1 = nn.ModuleList([Attention(embedding_dim, query_dim, dropout) for _ in range(hops)])
+        if share : self.attn1 = nn.ModuleList([Attention(emb_dim, query_dim, dropout)] * hops)
+        else     : self.attn1 = nn.ModuleList([Attention(emb_dim, query_dim, dropout) for _ in range(hops)])
         # intermediate encoder module
-        self.bigru = RecurrentEncoder(embedding_dim, hidden_dim, n_layers, dropout, bidirectional = True)
+        self.bigru = RecurrentEncoder(emb_dim, hidden_dim, n_layers, dropout, bidirectional = True)
         # second attention module
         if share : self.attn2 = nn.ModuleList([Attention(self.bigru.output_dim, query_dim, dropout)] * hops)
         else     : self.attn2 = nn.ModuleList([Attention(self.bigru.output_dim, query_dim, dropout) for _ in range(hops)])
         # accumulation step
-        self.transf = nn.Linear(self.bigru.output_dim, self.output_dim, bias = False) \
-                      if (transf or (self.hops > 1 and query_dim != self.bigru.output_dim)) else None
+        self.transf = nn.Linear(self.bigru.output_dim, self.output_dim, bias = False) if (transf or (self.hops > 1 and query_dim != self.bigru.output_dim)) else None
         
     def singlePass(self, packed_embeddings, query, attn1, attn2): 
         # first attention
         query1 = query.expand(packed_embeddings.size(0), 
                               packed_embeddings.size(1), 
                               query.size(2)) if query is not None else None
-        output, weights1 = attn1(packed_embeddings, query1) # size (dialogue_length, 1, embedding_dim)
+        output, weights1 = attn1(packed_embeddings, query1) # size (dialogue_length, 1, emb_dim)
         # intermediate biGRU
         output, _ = self.bigru(output.transpose(0, 1))      # size (1, dialogue_length, hidden_dim)
         output = self.dropout(output)
@@ -79,6 +80,7 @@ class HAN(nn.Module):
                 weights2_list.append(weights2)
         # output decision vector
         return query, weights1_list, weights2_list
+
 
 
 # -- OLD --

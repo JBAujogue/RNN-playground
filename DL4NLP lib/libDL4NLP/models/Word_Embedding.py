@@ -28,8 +28,10 @@ from libDL4NLP.utils import Lang
 
 
 class Word2Vec(nn.Module) :
-    def __init__(self, lang, T = 100):
-        super(Word2Vec, self).__init__()
+    def __init__(self, lang, 
+                 T = 100):
+        super().__init__()
+        
         self.lang = lang
         if type(T) == int :
             self.embedding = nn.Embedding(lang.n_words, T)  
@@ -37,7 +39,7 @@ class Word2Vec(nn.Module) :
             self.embedding = nn.Embedding(T.shape[0], T.shape[1])
             self.embedding.weight = nn.Parameter(torch.FloatTensor(T))
             
-        self.output_dim = self.lookupTable().shape[1]
+        self.out_dim = self.lookupTable().shape[1]
         self.sims = None
         
     def lookupTable(self) :
@@ -61,13 +63,12 @@ class Word2Vec(nn.Module) :
         return self.lookupTable()[self.lang.getIndex(word)]
     
     def addWord(self, word, vector = None) :
-        if word not in self.lang.word2index :
-            self.lang.addWord(word)
-            T = self.lookupTable()
-            v = np.random.rand(1, T.shape[1]) if vector is None else vector
-            updated_T = np.concatenate((T, v), axis = 0)
-            self.embedding = nn.Embedding(updated_T.shape[0], updated_T.shape[1])
-            self.embedding.weight = nn.Parameter(torch.FloatTensor(updated_T))
+        self.lang.addWord(word)
+        T = self.lookupTable()
+        v = np.random.rand(1, T.shape[1]) if vector is None else vector
+        updated_T = np.concatenate((T, v), axis = 0)
+        self.embedding = nn.Embedding(updated_T.shape[0], updated_T.shape[1])
+        self.embedding.weight = nn.Parameter(torch.FloatTensor(updated_T))
         return
     
     def freeze(self) :
@@ -82,9 +83,9 @@ class Word2Vec(nn.Module) :
         '''Transforms a list of n words into a torch.FloatTensor of size (1, n, emb_dim)'''
         indices  = [self.lang.getIndex(w) for w in words]
         indices  = [[i for i in indices if i is not None]]
-        variable = Variable(torch.LongTensor(indices)) # size (1, n)
+        variable = Variable(torch.LongTensor(indices)) # size = (1, n)
         if device is not None : variable = variable.to(device)
-        tensor   = self.embedding(variable)            # size (1, n, embedding_dim)
+        tensor   = self.embedding(variable)            # size = (1, n, emb_dim)
         return tensor
 
 
@@ -92,16 +93,17 @@ class Word2Vec(nn.Module) :
 class Word2VecConnector(nn.Module) :
     '''A Pytorch module wrapping a FastText word2vec model'''
     def __init__(self, word2vec) :
-        super(Word2VecConnector, self).__init__()
+        super().__init__()
+        
         self.word2vec = word2vec
         self.twin = Word2Vec(lang = Lang([list(word2vec.wv.index2word)], base_tokens = []), T = word2vec.wv.vectors)
         self.twin.addWord('PADDING_WORD')
         self.twin.addWord('UNK')
         self.twin = self.twin.freeze()
         
-        self.lang       = self.twin.lang
-        self.embedding  = self.twin.embedding
-        self.output_dim = self.twin.output_dim
+        self.lang      = self.twin.lang
+        self.embedding = self.twin.embedding
+        self.out_dim   = self.twin.out_dim
         
     def lookupTable(self) :
         return self.word2vec.wv.vectors
@@ -133,18 +135,18 @@ class Word2VecShell(nn.Module):
                  weight_tying = True,
                  criterion = nn.NLLLoss(size_average = False), 
                  optimizer = optim.SGD):
-        super(Word2VecShell, self).__init__()
+        super().__init__()
         self.device = device
         
         # core of Word2Vec
         self.word2vec = word2vec
         
         # training layers
-        self.input_n_words  = (2 * context_size if sg == 0 else 1)
-        self.output_n_words = (1 if sg == 0 else 2 * context_size)
-        self.word_size = word2vec.embedding.weight.size(1)
-        self.linear_1  = nn.Linear(self.input_n_words * self.word_size, self.output_n_words * self.word_size)
-        self.linear_2  = nn.Linear(self.word_size, word2vec.lang.n_words, bias = False)
+        self.in_n_word  = (2 * context_size if sg == 0 else 1)
+        self.out_n_word = (1 if sg == 0 else 2 * context_size)
+        self.word_size  = word2vec.embedding.weight.size(1)
+        self.linear_1   = nn.Linear(self.in_n_word * self.word_size, self.out_n_word * self.word_size)
+        self.linear_2   = nn.Linear(self.word_size, word2vec.lang.n_words, bias = False)
         
         # weight tying
         if weight_tying : self.linear_2.weight = self.word2vec.embedding.weight
@@ -159,21 +161,24 @@ class Word2VecShell(nn.Module):
         self.to(device)
         
     def forward(self, batch):
-        '''Transforms a batch of Ngrams of size (batch_size, input_n_words)
-           Into log probabilities of size (batch_size, lang.n_words, output_n_words)
+        '''Transforms a batch of Ngrams of size (batch_size, in_n_word)
+           Into log probabilities of size (batch_size, lang.n_words, out_n_word)
            '''
-        batch = batch.to(self.device)                 # size = (batch_size, self.input_n_words)
-        embed = self.word2vec.embedding(batch)        # size = (batch_size, self.input_n_words, embedding_dim)
-        embed = embed.view((batch.size(0), -1))       # size = (batch_size, self.input_n_words * embedding_dim)
-        out = self.linear_1(embed)                    # size = (batch_size, self.output_n_words * hidden_dim) 
-        out = out.view((batch.size(0),self.output_n_words, -1))
-        if not self.weight_tying : out = F.relu(out)  # size = (batch_size, self.output_n_words, hidden_dim)                                         
-        out = self.linear_2(out)                      # size = (batch_size, self.output_n_words, lang.n_words)
-        out = torch.transpose(out, 1, 2)              # size = (batch_size, lang.n_words, self.output_n_words)
-        log_probs = F.log_softmax(out, dim = 1)       # size = (batch_size, lang.n_words, self.output_n_words)
+        batch = batch.to(self.device)                 # size = (batch_size, self.in_n_word)
+        embed = self.word2vec.embedding(batch)        # size = (batch_size, self.in_n_word, emb_dim)
+        embed = embed.view((batch.size(0), -1))       # size = (batch_size, self.in_n_word * emb_dim)
+        out = self.linear_1(embed)                    # size = (batch_size, self.out_n_word * hid_dim) 
+        out = out.view((batch.size(0),self.out_n_word, -1))
+        if not self.weight_tying : out = F.relu(out)  # size = (batch_size, self.out_n_word, hid_dim)                                         
+        out = self.linear_2(out)                      # size = (batch_size, self.out_n_word, lang.n_words)
+        out = torch.transpose(out, 1, 2)              # size = (batch_size, lang.n_words, self.out_n_word)
+        log_probs = F.log_softmax(out, dim = 1)       # size = (batch_size, lang.n_words, self.out_n_word)
         return log_probs
     
-    def generatePackedNgrams(self, corpus, context_size = 5, batch_size = 32, seed = 42) :
+    def generatePackedNgrams(self, corpus, 
+                             context_size = 5, 
+                             batch_size = 32, 
+                             seed = 42) :
         # generate Ngrams
         data = []
         for text in corpus :
@@ -183,6 +188,7 @@ class Word2VecShell(nn.Module):
                 context = text[i-context_size : i] + text[i+1 : i+context_size+1]
                 word = text[i]
                 data.append([word, context])
+                
         # pack Ngrams into mini_batches
         random.seed(seed)
         random.shuffle(data)
@@ -197,12 +203,17 @@ class Word2VecShell(nn.Module):
             if   self.sg == 1 : packed_data.append([pack0, pack1])
             elif self.sg == 0 : packed_data.append([pack1, pack0])
             else :
-                print('A problem occured')
+                print('sg should be either 0 or 1')
                 pass
         return packed_data
     
-    def train(self, ngrams, iters = None, epochs = None, lr = 0.025, random_state = 42,
-              print_every = 10, compute_accuracy = False):
+    def train(self, ngrams, 
+              iters = None, 
+              epochs = None, 
+              lr = 0.025, 
+              random_state = 42,
+              print_every = 10, 
+              compute_accuracy = False):
         """Performs training over a given dataset and along a specified amount of loop
         s"""
         def asMinutes(s):
@@ -234,15 +245,15 @@ class Word2VecShell(nn.Module):
             """Performs a training loop, with forward pass and backward pass for gradient optimisation."""
             optimizer.zero_grad()
             self.zero_grad()
-            log_probs = self(couple[0])           # size = (batch_size, agent.output_n_words, agent.lang.n_words)
-            targets   = couple[1].to(self.device) # size = (batch_size, agent.output_n_words)
+            log_probs = self(couple[0])           # size = (batch_size, agent.out_n_word, agent.lang.n_words)
+            targets   = couple[1].to(self.device) # size = (batch_size, agent.out_n_word)
             loss      = self.criterion(log_probs, targets)
             loss.backward()
             optimizer.step() 
             accuracy = computeAccuracy(log_probs, targets) if compute_accuracy else 0
             return float(loss.item() / (targets.size(0) * targets.size(1))), accuracy
         
-        # --- main ---
+        # -- main --
         np.random.seed(random_state)
         start = time.time()
         optimizer = self.optimizer([param for param in self.parameters() if param.requires_grad == True], lr = lr)

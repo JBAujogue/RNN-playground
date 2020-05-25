@@ -1,5 +1,8 @@
 
 
+import nltk
+
+
 class Lang:
     def __init__(self, corpus = None, base_tokens = ['UNK'], min_count = None):
         self.base_tokens = base_tokens
@@ -25,11 +28,10 @@ class Lang:
     def addWord(self, word):
         '''Add a word to the language'''
         if word not in self.word2index:
-            if word.strip() != '' :
-                self.word2index[word] = self.n_words
-                self.word2count[word] = 1
-                self.index2word[self.n_words] = word
-                self.n_words += 1
+            self.word2index[word] = self.n_words
+            self.word2count[word] = 1
+            self.index2word[self.n_words] = word
+            self.n_words += 1
         else:
             self.word2count[word] += 1
         return 

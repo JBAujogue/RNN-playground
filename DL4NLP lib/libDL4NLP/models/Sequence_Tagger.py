@@ -5,6 +5,7 @@ import unicodedata
 import re
 import random
 import copy
+import itertools
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker #, FuncFormatter
@@ -19,7 +20,7 @@ from torch import optim
 from torch.autograd import Variable
 
 from libDL4NLP.modules import RecurrentEncoder
-
+from libDL4NLP.misc    import Highway
 
 
 #-------------------------------------------------------------------#
@@ -31,19 +32,26 @@ from libDL4NLP.modules import RecurrentEncoder
 class SequenceTagger(nn.Module) :
     def __init__(self, device, tokenizer, word2vec, 
                  hidden_dim = 100, 
-                 n_layers = 1, 
+                 n_layer = 1, 
                  n_class = 2,
                  dropout = 0,
                  class_weights = None, 
                  optimizer = optim.SGD
                  ):
-        super(SequenceTagger, self).__init__()
+        super().__init__()
         
-        # embedding
+        # layers
         self.tokenizer = tokenizer
         self.word2vec  = word2vec
-        self.context   = RecurrentEncoder(self.word2vec.output_dim, hidden_dim, n_layers, dropout, bidirectional = True)
-        self.out       = nn.Linear(self.context.output_dim, n_class)
+        self.context   = RecurrentEncoder(
+            emb_dim = self.word2vec.out_dim, 
+            hid_dim = hidden_dim, 
+            n_layer = n_layer, 
+            dropout = dropout, 
+            bidirectional = True)
+        self.out       = nn.Sequential(
+            Highway(self.context.out_dim, dropout), 
+            nn.Linear(self.context.out_dim, n_class))
         self.act       = F.softmax
         self.n_class   = n_class
         
@@ -77,8 +85,7 @@ class SequenceTagger(nn.Module) :
         return [(w, i) for w, i in zip(words, inds)]
 
     # load data
-    def generatePackedSentences(self, 
-                                sentences, 
+    def generatePackedSentences(self, sentences, 
                                 batch_size = 32, 
                                 mask_ratio = 0,
                                 seed = 42) :

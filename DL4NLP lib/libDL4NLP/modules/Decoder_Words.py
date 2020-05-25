@@ -26,33 +26,39 @@ class Decoder(nn.Module):
                           dropout = dropout, 
                           batch_first = True)
         self.out = nn.Linear(hidden_dim, word2vec.lang.n_words)
-        self.act = F.log_softmax
         self.dropout = nn.Dropout(dropout)
-        
-    def generateWord(self, hidden, embeddings, word_index):
-        # update hidden state
-        embedding = self.word2vec.embedding(word_index) # size (batch_size, 1, embedding_dim)
-        embedding = self.dropout(embedding)
-        _, hidden = self.gru(embedding, hidden)         # size (n_layers, batch_size, embedding_dim)
-        # generate next word
-        log_prob = self.out(hidden[-1])                 # size (batch_size, lang_size)
-        log_prob = self.act(log_prob, dim = 1)          # size (batch_size, lang_size)
-        return log_prob, hidden
     
-    def forward(self, hidden, embeddings = None, device = None) :
+    def initWordTensor(self, index_list, device = None) :
+        word = torch.LongTensor(index_list).view(-1, 1)     # size (batch_size, 1)
+        word = Variable(word)                               # size (batch_size, 1)
+        if device is not None : word = word.to(device)      # size (batch_size, 1)
+        return word
+        
+    def generateWord(self, hidden, word):
+        '''word is a LongTensor with size (batch_size, 1)'''
+        embedding = self.word2vec.embedding(word)       # size (batch_size, 1, embedding_dim)
+        embedding = self.dropout(embedding)             # size (batch_size, 1, embedding_dim)
+        _, hidden = self.gru(embedding, hidden)         # size (n_layers, batch_size, embedding_dim)
+        vect      = self.out(hidden[-1])                # size (batch_size, lang_size)
+        return vect, hidden
+    
+    def forward(self, hidden, device = None) :
         answer = []
-        EOS_token  = self.word2vec.lang.getIndex('EOS')
-        word = self.word2vec.lang.getIndex('SOS')
-        word = Variable(torch.LongTensor([[word]])) # size (1)
-        hidden = hidden[-self.n_layers:]
+        EOS_token = self.word2vec.lang.getIndex('EOS')
+        SOS_token = self.word2vec.lang.getIndex('SOS')
+        word      = self.initWordTensor([SOS_token], device = device)
+        hidden    = hidden[-self.n_layers:]             # size (n_layers, 1, hidden_dim)
+        # word generation
         for t in range(self.bound) :
-            # compute next word
-            if device is not None : word = word.to(device) # size (1)
-            log_prob, hidden = self.generateWord(hidden, embeddings, word)
-            word = log_prob.topk(1, dim = 1)[1].view(1, 1)
-            # add to output
-            if word.item() == EOS_token : break
-            else : answer.append(word.item())
+            # compute next word proba
+            vect, hidden = self.generateWord(hidden, word)
+            # compute next word index
+            word_index = vect.topk(1, dim = 1)[1].item()
+            # stopping criterion
+            if word_index == EOS_token : break
+            else : 
+                answer.append(word_index)
+                word = vect.topk(1, dim = 1)[1].view(1, 1)
         return answer
 
 

@@ -5,6 +5,7 @@ import unicodedata
 import re
 import random
 import copy
+import itertools
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker #, FuncFormatter
@@ -30,18 +31,23 @@ from libDL4NLP.modules import RecurrentEncoder
 class LanguageModel(nn.Module) :
     def __init__(self, device, tokenizer, word2vec, 
                  hidden_dim = 100, 
-                 n_layers = 1, 
+                 n_layer = 1, 
                  dropout = 0, 
                  class_weights = None, 
                  optimizer = optim.SGD
                  ):
-        super(LanguageModel, self).__init__()
+        super().__init__()
         
-        # embedding
+        # layers
         self.tokenizer = tokenizer
         self.word2vec  = word2vec
-        self.context   = RecurrentEncoder(self.word2vec.output_dim, hidden_dim, n_layers, dropout, bidirectional = False)
-        self.out       = nn.Linear(self.context.output_dim, self.word2vec.lang.n_words)
+        self.context   = RecurrentEncoder(
+            emb_dim = self.word2vec.out_dim, 
+            hid_dim = hidden_dim, 
+            n_layer = n_layer, 
+            dropout = dropout, 
+            bidirectional = False)
+        self.out       = nn.Linear(self.context.out_dim, self.word2vec.lang.n_words)
         self.act       = F.softmax
         
         # optimizer
@@ -55,7 +61,12 @@ class LanguageModel(nn.Module) :
     def nbParametres(self) :
         return sum([p.data.nelement() for p in self.parameters() if p.requires_grad == True])
     
-    def forward(self, sentence = '.', hidden = None, limit = 10, color_code = '\033[94m'):
+    def forward(self, 
+                sentence = '.', 
+                hidden = None, 
+                limit = 10, 
+                color_code = '\033[94m'):
+        # init variables
         words  = self.tokenizer(sentence)
         result = words + [color_code]
         hidden, count, stop = None, 0, False
@@ -72,14 +83,13 @@ class LanguageModel(nn.Module) :
             count += 1
             if count == limit or words == [limit] or count == 50 : stop = True
         print(' '.join(result + ['\033[0m']))
-        return
+        return 
     
-    def generatePackedSentences(self, sentences, batch_size = 32, depth_range = (5, 10)) :
+    def generatePackedSentences(self, sentences, batch_size = 32, lengths = [5, 10, 15]) :
         sentences = [s[i: i+j] \
                      for s in sentences \
-                     for i in range(len(s)-depth_range[0]) \
-                     for j in range(depth_range[0], min(depth_range[1], len(s)-i)+1) \
-                    ]
+                     for j in lengths \
+                     for i in range(len(s)-j)]
         sentences.sort(key = lambda s: len(s), reverse = True)
         packed_data = []
         for i in range(0, len(sentences), batch_size) :

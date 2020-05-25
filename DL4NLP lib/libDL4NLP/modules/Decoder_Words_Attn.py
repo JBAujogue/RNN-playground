@@ -28,42 +28,53 @@ class AttnDecoder(nn.Module):
                           dropout = dropout, 
                           batch_first = True)
         self.attn = Attention(attention_dim, hidden_dim, dropout = dropout)
-        self.out = nn.Linear(attention_dim + hidden_dim, word2vec.lang.n_words)
-        self.act = F.log_softmax
+        self.out  = nn.Linear(attention_dim + hidden_dim, word2vec.lang.n_words)
         self.dropout = nn.Dropout(dropout)
+    
+    def initWordTensor(self, index_list, device = None) :
+        word = torch.LongTensor(index_list).view(-1, 1)     # size (batch_size, 1)
+        word = Variable(word)                               # size (batch_size, 1)
+        if device is not None : word = word.to(device)      # size (batch_size, 1)
+        return word
         
-    def generateWord(self, hidden, embeddings, word_index):
+    def generateWord(self, hidden, embeddings, word):
+        '''word is a LongTensor with size (batch_size, 1)'''
         # update hidden state
-        embedding = self.word2vec.embedding(word_index) # size (batch_size, 1, embedding_dim)
-        embedding = self.dropout(embedding)
+        embedding = self.word2vec.embedding(word)       # size (batch_size, 1, embedding_dim)
+        embedding = self.dropout(embedding)             # size (batch_size, 1, embedding_dim)
         _, hidden = self.gru(embedding, hidden)         # size (n_layers, batch_size, embedding_dim)
         # merge with attention
         query = hidden[-1].unsqueeze(1)                 # size (batch_size, 1, embedding_dim)
+        query = query.expand(query.size(0), 
+                             embeddings.size(1), 
+                             query.size(2))             # size (batch_size, sequence_length, embedding_dim)
         attn, weights = self.attn(embeddings, query)    # size (batch_size, 1, embedding_dim)
         merge = torch.cat([hidden[-1], attn.squeeze(1)], dim = 1) 
         merge = self.dropout(merge)                     # size (batch_size, embedding_dim + hidden_dim)
         # generate next word
-        log_prob = self.out(merge)                      # size (batch_size, lang_size)
-        log_prob = self.act(log_prob, dim = 1)          # size (batch_size, lang_size)
-        return log_prob, hidden, weights
+        vect = self.out(merge)                          # size (batch_size, lang_size)
+        return vect, hidden, weights
     
     def forward(self, hidden, embeddings, device = None) :
         answer  = []
-        EOS_token  = self.word2vec.lang.getIndex('EOS')
-        word = self.word2vec.lang.getIndex('SOS')
-        word = Variable(torch.LongTensor([[word]])) # size (1)
-        hidden = hidden[-self.n_layers:]
+        EOS_token = self.word2vec.lang.getIndex('EOS')
+        SOS_token = self.word2vec.lang.getIndex('SOS')
+        word      = self.initWordTensor([SOS_token], device = device)
+        hidden    = hidden[-self.n_layers:]             # size (n_layers, 1, hidden_dim)
+        # word generation
         for t in range(self.bound) :
-            # compute next word
-            if device is not None : word = word.to(device) # size (1)
-            log_prob, hidden, atn = self.generateWord(hidden, embeddings, word)
-            word = log_prob.topk(1, dim = 1)[1].view(1, 1)
-            # add to output
-            if word.item() == EOS_token : break
-            else : answer.append(word.item())
+            # compute next word proba
+            vect, hidden, attn = self.generateWord(hidden, embeddings, word)
+            # compute next word index
+            word_index = vect.topk(1, dim = 1)[1].item()
+            # stopping criterion
+            if word_index == EOS_token : break
+            else : 
+                answer.append(word_index)
+                word = vect.topk(1, dim = 1)[1].view(1, 1)
             # cumulate attention weights
-            if t == 0 : weights = atn
-            else      : weights = torch.cat((weights, atn), dim = 1) # size(1, output_length, input_length)
+            if t == 0 : weights = attn
+            else      : weights = torch.cat((weights, attn), dim = 1) # size(1, output_length, input_length)
         return answer, weights
 
 
