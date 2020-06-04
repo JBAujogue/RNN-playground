@@ -15,7 +15,7 @@ This notebook presents a Sentence Classification model, with word embedding perf
  
  - Binary and Multi-Class Classification
  - Minibatch-enabled training
- - Bidirectional GRUs + Self-Attention
+ - Bidirectional GRUs & Self-Attention
  - Highway Connections in Self-Attention
  - Multi-Head Self-Attention
  - Penalization over distinct heads
