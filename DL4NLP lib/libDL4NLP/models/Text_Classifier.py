@@ -85,16 +85,17 @@ class TextClassifier(nn.Module) :
         '''classifies a sentence as string'''
         # tokenize, embed and contextualize
         sentences   = self.tokenizer(text)
+        lengths     = torch.tensor([len(s) for s in sentences]).to(self.device)
         embeddings  = [self.word2vec(words, self.device).squeeze(0) for words in sentences] # list of tensors of size (1, n_words, embedding_dim)
         embeddings  = nn.utils.rnn.pad_sequence(embeddings, batch_first = True, padding_value = 0)  # size (n_sentences, n_words, embedding_dim)
-        hiddens, _  = self.context(embeddings, enforce_sorted = False) # size (n_sentences, n_words, embedding_dim)
+        hiddens, _  = self.context(embeddings, lengths, enforce_sorted = False) # size (n_sentences, n_words, embedding_dim)
 
         #init query whether necessary
         if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
         else                  : query = None
 
         # compute attention
-        attended, w1, w2 = self.attention(hiddens, query)
+        attended, w1, w2 = self.attention(hiddens, query, lengths)
         if self.bin_mode : prediction = self.act(self.out(attended).view(-1)).data.topk(1)[0].item()
         else             : prediction = self.act(self.out(attended.squeeze(1)), dim = 1).data.topk(1)[1].item()
 
@@ -125,13 +126,14 @@ class TextClassifier(nn.Module) :
         def compute_batch_accuracy(batch, target) :
             torch.cuda.empty_cache()
             # embed and contextualize
-            embeddings       = self.word2vec.embedding(batch[0].to(self.device))
-            hiddens, _       = self.context(embeddings, lengths = batch[1].to(self.device), enforce_sorted = False)
+            lengths    = batch[1].to(self.device)
+            embeddings = self.word2vec.embedding(batch[0].to(self.device))
+            hiddens, _ = self.context(embeddings, lengths, enforce_sorted = False)
             #init query whether necessary
             if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
             else                  : query = None
             # compute attention
-            attended, w1, w2 = self.attention(hiddens, query)
+            attended, w1, w2 = self.attention(hiddens, query, lengths)
             # compute score
             if self.bin_mode : 
                 pred  = self.act(self.out(attended).view(-1)).data.topk(1)[0].item()
@@ -169,13 +171,14 @@ class TextClassifier(nn.Module) :
         
         def computeLogProbs(batch) :
             # embed and contextualize
-            embeddings       = self.word2vec.embedding(batch[0].to(self.device))
-            hiddens, _       = self.context(embeddings, lengths = batch[1].to(self.device), enforce_sorted = False)
+            lengths    = batch[1].to(self.device)
+            embeddings = self.word2vec.embedding(batch[0].to(self.device))
+            hiddens, _ = self.context(embeddings, lengths, enforce_sorted = False)
             #init query whether necessary
             if self.query_dim > 0 : query = torch.zeros(1, 1, self.query_dim).to(self.device)
             else                  : query = None
             # compute attention
-            attended, w1, w2 = self.attention(hiddens, query)
+            attended, w1, w2 = self.attention(hiddens, query, lengths)
             # compute log prob
             if self.bin_mode : return self.out(attended).view(-1)
             else             : return F.log_softmax(self.out(attended.squeeze(1)))

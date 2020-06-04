@@ -16,22 +16,21 @@ class HAN(nn.Module):
     - hiérarchique avec bi-GRU entre les deux niveaux d'attention
     - globalement multi-hopé, où il est possible d'effectuer plusieurs passes pour accumuler de l'information
     '''
-    def __init__(self, emb_dim, hidden_dim, query_dim,
-                 n_layers = 1,
+    def __init__(self, emb_dim, hid_dim, query_dim,
+                 n_layer = 1,
                  hops = 1,
                  share = True,
                  transf = False,
-                 dropout = 0
-                ):
+                 dropout = 0):
         super(HAN, self).__init__()
         
         # dimensions
         self.emb_dim = emb_dim
         self.query_dim = query_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = self.query_dim if (self.query_dim > 0 and \
-                                            (transf or (hops > 1 and query_dim != hidden_dim))) \
-                                         else hidden_dim
+        self.hid_dim = hid_dim
+        self.out_dim = self.query_dim if (self.query_dim > 0 and \
+                                         (transf or (hops > 1 and query_dim != hid_dim))) \
+                                      else hid_dim
         self.hops = hops
         self.share = share
         
@@ -41,45 +40,51 @@ class HAN(nn.Module):
         if share : self.attn1 = nn.ModuleList([Attention(emb_dim, query_dim, dropout)] * hops)
         else     : self.attn1 = nn.ModuleList([Attention(emb_dim, query_dim, dropout) for _ in range(hops)])
         # intermediate encoder module
-        self.bigru = RecurrentEncoder(emb_dim, hidden_dim, n_layers, dropout, bidirectional = True)
+        self.bigru = RecurrentEncoder(emb_dim, hid_dim, n_layer, dropout, bidirectional = True)
         # second attention module
-        if share : self.attn2 = nn.ModuleList([Attention(self.bigru.output_dim, query_dim, dropout)] * hops)
-        else     : self.attn2 = nn.ModuleList([Attention(self.bigru.output_dim, query_dim, dropout) for _ in range(hops)])
+        if share : self.attn2 = nn.ModuleList([Attention(self.bigru.out_dim, query_dim, dropout)] * hops)
+        else     : self.attn2 = nn.ModuleList([Attention(self.bigru.out_dim, query_dim, dropout) for _ in range(hops)])
         # accumulation step
-        self.transf = nn.Linear(self.bigru.output_dim, self.output_dim, bias = False) if (transf or (self.hops > 1 and query_dim != self.bigru.output_dim)) else None
+        self.transf = nn.Linear(self.bigru.out_dim, self.out_dim, bias = False) if (transf or (self.hops > 1 and query_dim != self.bigru.out_dim)) else None
         
-    def singlePass(self, packed_embeddings, query, attn1, attn2): 
+        
+    def singlePass(self, packed_embeddings, query, attn1, attn2, lengths): 
         # first attention
         query1 = query.expand(packed_embeddings.size(0), 
                               packed_embeddings.size(1), 
                               query.size(2)) if query is not None else None
-        output, weights1 = attn1(packed_embeddings, query1) # size (dialogue_length, 1, emb_dim)
+        output, weights1 = attn1(packed_embeddings, query1, lengths) # size (dialogue_length, 1, emb_dim)
         # intermediate biGRU
-        output, _ = self.bigru(output.transpose(0, 1))      # size (1, dialogue_length, hidden_dim)
+        output, _ = self.bigru(output.transpose(0, 1))               # size (1, dialogue_length, hid_dim)
         output = self.dropout(output)
         # second attention
         query2 = query.expand(output.size(0), 
                               output.size(1), 
                               query.size(2)) if query is not None else None
-        output, weights2 = attn2(output, query2)            # size (1, dialogue_length, hidden_dim)
+        output, weights2 = attn2(output, query2)                     # size (1, dialogue_length, hid_dim)
         # output decision vector
-        if self.transf is not None : output = self.transf(output) # size (1, 1, output_dim)
+        if self.transf is not None : output = self.transf(output)    # size (1, 1, out_dim)
         if query is not None       : output = output + query
-        # return
-        return output, weights1, weights2
+        return (output, weights1, weights2)
         
-    def forward(self, packed_embeddings, query = None):
+        
+    def forward(self, packed_embeddings, query = None, lengths = None):
         weights1_list = []
         weights2_list = []
         # perform attention loops
         if packed_embeddings is not None :
             for hop in range(self.hops) :
                 # perform attention pass
-                query, weights1, weights2 = self.singlePass(packed_embeddings, query, self.attn1[hop], self.attn2[hop])
+                query, weights1, weights2 = self.singlePass(
+                    packed_embeddings, 
+                    query, 
+                    self.attn1[hop], 
+                    self.attn2[hop], 
+                    lengths)
                 weights1_list.append(weights1)
                 weights2_list.append(weights2)
         # output decision vector
-        return query, weights1_list, weights2_list
+        return (query, weights1_list, weights2_list)
 
 
 
@@ -94,11 +99,11 @@ class RecurrentHierarchicalAttention(nn.Module):
 
     def __init__(self, 
                  device,
-                 word_hidden_dim, 
-                 sentence_hidden_dim,
+                 word_hid_dim, 
+                 sentence_hid_dim,
                  query_dim = 0, 
                  n_heads = 1,
-                 n_layers = 1,
+                 n_layer = 1,
                  hops = 1,
                  share = True,
                  transf = False,
@@ -108,17 +113,17 @@ class RecurrentHierarchicalAttention(nn.Module):
         
         # dimensions
         self.query_dim = query_dim
-        self.word_hidden_dim = word_hidden_dim
-        self.sentence_input_dim = self.word_hidden_dim
-        self.sentence_hidden_dim = sentence_hidden_dim
-        self.context_vector_dim = sentence_hidden_dim * 2
-        self.output_dim = self.query_dim if (transf or self.hops > 0) else self.context_vector_dim
+        self.word_hid_dim = word_hid_dim
+        self.sentence_input_dim = self.word_hid_dim
+        self.sentence_hid_dim = sentence_hid_dim
+        self.context_vector_dim = sentence_hid_dim * 2
+        self.out_dim = self.query_dim if (transf or self.hops > 0) else self.context_vector_dim
         
         # structural coefficients
         self.device = device
         self.n_level = 2
         self.n_heads = n_heads
-        self.n_layers = n_layers
+        self.n_layer = n_layer
         self.hops = hops
         self.share = share
         self.dropout_p = dropout
@@ -127,22 +132,22 @@ class RecurrentHierarchicalAttention(nn.Module):
         # first attention module
         attn1_list = []
         if share :
-            attn1 = MultiHeadAdditiveAttention(n_heads, self.query_dim, self.word_hidden_dim) if n_heads > 1 else \
-                    AdditiveAttention(self.query_dim, self.word_hidden_dim) 
+            attn1 = MultiHeadAdditiveAttention(n_heads, self.query_dim, self.word_hid_dim) if n_heads > 1 else \
+                    AdditiveAttention(self.query_dim, self.word_hid_dim) 
             for hop in range(hops) : attn1_list.append(attn1)
             self.attn1 = nn.ModuleList(attn1_list)
         else :
             for hop in range(hops):
-                attn1 = MultiHeadAdditiveAttention(n_heads, self.query_dim, self.word_hidden_dim) if n_heads > 1 else \
-                        AdditiveAttention(self.query_dim, self.word_hidden_dim) 
+                attn1 = MultiHeadAdditiveAttention(n_heads, self.query_dim, self.word_hid_dim) if n_heads > 1 else \
+                        AdditiveAttention(self.query_dim, self.word_hid_dim) 
                 attn1_list.append(attn1)
             self.attn1 = nn.ModuleList(attn1_list)
         
         # intermediate encoder module
         self.bigru = nn.GRU(self.sentence_input_dim, 
-                            self.sentence_hidden_dim, 
-                            n_layers,
-                            dropout=(0 if n_layers == 1 else dropout), 
+                            self.sentence_hid_dim, 
+                            n_layer,
+                            dropout=(0 if n_layer == 1 else dropout), 
                             bidirectional=True)
         
         # second attention module
@@ -160,7 +165,7 @@ class RecurrentHierarchicalAttention(nn.Module):
             self.attn2 = nn.ModuleList(attn2_list)
         
         # accumulation step
-        self.transf = nn.Linear(self.context_vector_dim, self.output_dim, bias = False) \
+        self.transf = nn.Linear(self.context_vector_dim, self.out_dim, bias = False) \
                       if (transf or self.hops > 0) else None
 
 
@@ -171,7 +176,7 @@ class RecurrentHierarchicalAttention(nn.Module):
         
                 
     def initHidden(self): 
-        return Variable(torch.zeros(2 * self.n_layers, self.n_heads, self.sentence_hidden_dim)).to(self.device)
+        return Variable(torch.zeros(2 * self.n_layer, self.n_heads, self.sentence_hid_dim)).to(self.device)
         
         
     def singlePass(self, words_memory, query, attn1, attn2): 
@@ -180,14 +185,14 @@ class RecurrentHierarchicalAttention(nn.Module):
         bigru_inputs = Variable(torch.zeros(L, self.n_heads, self.sentence_input_dim)).to(self.device)
         # first attention layer
         for i in range(L) :
-            targets = words_memory[i]                              # size (N_i, 1, 2*word_hidden_dim)
-            targets = targets.repeat(1, self.n_heads, 1)           # size (N_i, n_heads, 2*word_hidden_dim)
+            targets = words_memory[i]                              # size (N_i, 1, 2*word_hid_dim)
+            targets = targets.repeat(1, self.n_heads, 1)           # size (N_i, n_heads, 2*word_hid_dim)
             attn1_output, attn1_wghts = attn1(query, targets)
             attn1_weights[i] = attn1_wghts
-            bigru_inputs[i] = attn1_output.squeeze(0)              # size (n_heads, 2*word_hidden_dim)
+            bigru_inputs[i] = attn1_output.squeeze(0)              # size (n_heads, 2*word_hid_dim)
         # intermediate biGRU
         bigru_hidden = self.initHidden()
-        attn2_inputs, bigru_hidden = self.bigru(bigru_inputs, bigru_hidden)  # size (L, n_heads, 2*word_hidden_dim)
+        attn2_inputs, bigru_hidden = self.bigru(bigru_inputs, bigru_hidden)  # size (L, n_heads, 2*word_hid_dim)
         # second attention layer
         attn2_inputs = self.dropout(attn2_inputs)
         decision_vector, attn2_weights = attn2(query = query, targets = attn2_inputs)
@@ -203,7 +208,7 @@ class RecurrentHierarchicalAttention(nn.Module):
         
     def forward(self, words_memory, query = None):
         '''takes as parameters : 
-                a tensor containing words_memory vectors        dim = (words_memory_length, word_hidden_dim)
+                a tensor containing words_memory vectors        dim = (words_memory_length, word_hid_dim)
                 a tensor containing past queries                dim = (words_memory_length, query_dim)
            returns : 
                 the resulting decision vector                   dim = (1, 1, query_dim)
@@ -222,7 +227,7 @@ class RecurrentHierarchicalAttention(nn.Module):
                                                                                 self.attn2[hop])
                 attn1_weights_list.append(attn1_weights)
                 attn2_weights_list.append(attn2_weights)
-                query = self.update(query, decision_vector)  # size (L, self.n_heads, self.output_dim)
+                query = self.update(query, decision_vector)  # size (L, self.n_heads, self.out_dim)
 
         # output decision vector
         return query, attn1_weights_list, attn2_weights_list

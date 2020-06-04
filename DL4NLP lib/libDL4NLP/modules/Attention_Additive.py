@@ -20,54 +20,74 @@ class SelfAttention(nn.Module):
         self.key     = nn.Sequential(Highway(emb_dim), nn.Linear(emb_dim, 1, bias = False))
         self.value   = Highway(emb_dim, dropout = dropout)
         self.act     = F.softmax
+    
+    def computeMask(self, lengths, max_length) :
+        # see http://juditacs.github.io/2018/12/27/masked-attention.html
+        return torch.arange(max_length).to(lengths.device)[None, :] < lengths[:, None]
 
-    def forward(self, embeddings):           # size (batch_size, input_length, emb_dim)
-        weights = self.key(embeddings)       # size (batch_size, input_length, 1) 
-        weights = self.act(weights, dim = 1) # size (batch_size, input_length, 1)
-        weights = weights.transpose(1, 2)    # size (batch_size, 1, input_length)
-        values  = self.value(embeddings)     # size (batch_size, input_length, emb_dim)
+    def forward(self, embeddings,
+               lengths = None) :             # size (batch_size, max_length, emb_dim)  
+        # compute weights
+        weights = self.key(embeddings)       # size (batch_size, max_length, 1) 
+        weights = weights.squeeze(2)         # size (batch_size, max_length)
+        # mask attention over padded tokens
+        if lengths is not None :
+            mask = self.computeMask(lengths, weights.size(1))
+            weights[~mask] = float('-inf')   # size (batch_size, max_length)
+        # compute weighted sum
+        weights = self.act(weights, dim = 1) # size (batch_size, max_length)
+        weights = weights.unsqueeze(1)       # size (batch_size, 1, max_length)
+        values  = self.value(embeddings)     # size (batch_size, max_length, emb_dim)
         applied = torch.bmm(weights, values) # size (batch_size, 1, emb_dim)
         return applied, weights
 
 
 
 class Attention(nn.Module):
-    def __init__(self, embedding_dim, query_dim, 
+    def __init__(self, emb_dim, query_dim, 
                  dropout = 0, 
-                 method = 'concat' 
-                ): 
-        super(Attention, self).__init__()
+                 method = 'concat'): 
+        super().__init__()
         
         # relevant quantities
-        self.method        = method
-        self.embedding_dim = embedding_dim
-        self.output_dim    = embedding_dim
+        self.method  = method
+        self.emb_dim = emb_dim
+        self.out_dim = emb_dim
         
-        # parameters
-        self.dropout    = nn.Dropout(p = dropout)
-        self.attn_layer = HighwayQ(embedding_dim, query_dim, dropout)
-        self.attn_v     = nn.Linear(embedding_dim, 1, bias = False)
-        self.value      = HighwayQ(embedding_dim, query_dim, dropout)
-        self.act        = F.softmax
+        # layers
+        self.dropout = nn.Dropout(p = dropout)
+        self.key1    = HighwayQ(emb_dim, query_dim, dropout)
+        self.key2    = nn.Linear(emb_dim, 1, bias = False)
+        self.value   = HighwayQ(emb_dim, 0, dropout)
+        self.act     = F.softmax
+
+    def computeMask(self, lengths, max_length) :
+        # see http://juditacs.github.io/2018/12/27/masked-attention.html
+        return torch.arange(max_length).to(lengths.device)[None, :] < lengths[:, None]
         
-    def forward(self, embeddings, query):
-        '''embeddings       of size (batch_size, input_length, embedding_dim)
-           query (optional) of size (batch_size, 1, embedding_dim)
+    def forward(self, embeddings, query = None, 
+                lengths = None):
+        '''embeddings       of size (batch_size, input_length, emb_dim)
+           query (optional) of size (batch_size, 1, emb_dim)
         '''
-        # query is optional for this method
+        # compute attention weights
         if self.method == 'concat' :
-            weights = self.attn_layer(embeddings, query)       # size (batch_size, input_length, embedding_dim)
-            weights = self.act(self.attn_v(weights), dim = 1)  # size (batch_size, input_length, 1)
-            weights = torch.transpose(weights, 1, 2)           # size (batch_size, 1, input_length)
-            
-        # query is necessary for this method
+            weights = self.key2(self.key1(embeddings, query))  # size (batch_size, max_length, 1)
+            weights = weights.squeeze(2)           # size (batch_size, max_length)
         elif self.method == 'dot' :
-            query   = torch.transpose(query, 1, 2)             # size (batch_size, query_dim, 1)
-            weights = torch.bmm(embeddings, query)             # size (batch_size, input_length, 1)
-            weights = self.act(weights, dim = 1)               # size (batch_size, input_length, 1)
-            weights = torch.transpose(weights, 1, 2)           # size (batch_size, 1, input_length)
-        applied = self.dropout(torch.bmm(weights, embeddings)) # size (batch_size, 1, embedding_dim)
-        return applied, weights
+            query   = query.transpose(1, 2)        # size (batch_size, query_dim, 1)
+            weights = torch.bmm(embeddings, query) # size (batch_size, max_length, 1)
+            weights = weights.squeeze(2)           # size (batch_size, max_length)
+        # mask attention over padded tokens
+        if lengths is not None :
+            mask = self.computeMask(lengths, weights.size(1))
+            weights[~mask] = float('-inf')     # size (batch_size, max_length)
+        # compute weighted sum
+        weights = self.act(weights, dim = 1)       # size (batch_size, max_length)
+        weights = weights.unsqueeze(1)             # size (batch_size, 1, max_length)
+        values  = self.value(embeddings)           # size (batch_size, max_length, emb_dim)
+        applied = torch.bmm(weights, values)       # size (batch_size, 1, emb_dim)
+        return (applied, weights)
 
 
 # -- OLD --

@@ -9,43 +9,64 @@ from . import Attention, AdditiveAttention
 
 
 class SmoothAttnDecoder(nn.Module):
-    '''Transforms a vector into a sequence of words'''
-    def __init__(self, word2vec, attention_dim, hidden_dim,
-                 n_layers = 1,
+    '''
+    Converts a vector into a sequence of words,
+    where next token prediction is based on previous token probability distribution
+    rather than previous token selection
+    '''
+    def __init__(self, word2vec, attn_dim, hid_dim,
+                 n_layer = 1,
                  dropout = 0.1,
-                 bound = 25
+                 bound   = 25,
+                 temperature = 1,
+                 top = None
                 ):
-        super(SmoothAttnDecoder, self).__init__()
-        T = word2vec.embedding.weight.cpu().detach().numpy()
+        super().__init__()
+        
         # relevant quantities
-        self.lang_size   = T.shape[0]
-        self.embedd_dim  = T.shape[1]
-        self.hidden_dim  = hidden_dim
-        self.n_layers    = n_layers
-        self.bound       = bound
-        self.temperature = 10
-        # embedding module
-        self.embedding = nn.Linear(self.lang_size, self.embedd_dim, bias = False)
-        self.embedding.weight = nn.Parameter(torch.FloatTensor(T.transpose()))
+        lang_size, emb_dim = word2vec.embedding.weight.size()
+        self.lang_size = lang_size
+        self.emb_dim   = emb_dim
+        self.hid_dim   = hid_dim
+        self.n_layer   = n_layer
+        self.bound     = bound
+        self.temp      = temperature
+        self.top       = top
+        
+        # modules
+        # dense embedding with shared weights
+        self.embedding = nn.Linear(lang_size, emb_dim, bias = False)
+        self.embedding.weight.data = word2vec.embedding.weight.data.t()
         for param in self.embedding.parameters() : param.requires_grad = False
-        # other modules
+            
         self.word2vec = word2vec
-        self.gru = nn.GRU(self.embedd_dim, 
-                          hidden_dim, 
-                          n_layers, 
-                          dropout = dropout, 
-                          batch_first = True)
-        self.attn = Attention(attention_dim, hidden_dim, dropout = dropout)
-        self.out = nn.Linear(attention_dim + hidden_dim, self.lang_size)
+        
+        self.gru = nn.GRU(
+            emb_dim,
+            hid_dim,
+            n_layer,
+            dropout = dropout,
+            batch_first = True)
+        
+        self.attn = Attention(
+            emb_dim   = attn_dim, 
+            query_dim = hid_dim, 
+            dropout   = dropout)
+        
+        self.out = nn.Linear(attn_dim + hid_dim, lang_size)
         self.act = F.log_softmax
         self.dropout = nn.Dropout(dropout)
 
+        
     def initWordTensor(self, index_list, device = None) :
+        '''converts a list of N word indices with vocab of size L
+           into a dense FloatTensor of size (N, L)'''
         word = torch.zeros((len(index_list), self.lang_size), dtype = torch.float)
         for i, index in enumerate(index_list) : word[i, index] = 1.
         word = Variable(word)                               # size (batch_size, lang_size)
         if device is not None : word = word.to(device)      # size (batch_size, lang_size)
         return word
+        
         
     def generateWord(self, hidden, embeddings, word):
         '''word is a FloatTensor with size (batch_size, lang_size)'''
@@ -53,36 +74,69 @@ class SmoothAttnDecoder(nn.Module):
         embedding = self.embedding(word.unsqueeze(1))       # size (batch_size, 1, embedding_dim)
         embedding = self.dropout(embedding)                 # size (batch_size, 1, embedding_dim)
         _, hidden  = self.gru(embedding, hidden)            # size (n_layers, batch_size, embedding_dim)
-        # merge with attention
+        # compute attention
         query = hidden[-1].unsqueeze(1)                     # size (batch_size, 1, embedding_dim)
         query = query.expand(query.size(0), 
                              embeddings.size(1), 
                              query.size(2))                 # size (batch_size, sequence_length, embedding_dim)
         attn, weights = self.attn(embeddings, query)        # size (batch_size, 1, embedding_dim)
+        # merge hidden with attention
         merge = torch.cat([hidden[-1], attn.squeeze(1)], dim = 1) 
         merge = self.dropout(merge)                         # size (batch_size, embedding_dim + hidden_dim)
         # generate next word
-        vect = self.out(merge) * self.temperature           # size (batch_size, lang_size)
-        return vect, hidden, weights
+        vect = self.out(merge)                              # size (batch_size, lang_size)
+        return (vect, hidden, weights)
+
+    
+    def computeProba(self, vect, device = None):
+        '''Converts a word repartition vector with size (batch_size, lang_size)
+           into a probability vector with size (batch_size, lang_size)'''
+        # apply temperature
+        vect /= self.temp
+        # top-p proba refactoring
+        if type(self.top) == float and 0 < self.top < 1 : 
+            # TODO
+            proba = F.softmax(vect, dim = 1)
+        #top-k proba refactoring
+        elif type(self.top) == int and self.top > 0 : 
+            vals, inds = vect.topk(self.top, dim = 1)        # size (batch_size, self.top)
+            proba_vals = F.softmax(vals, dim = 1)            # size (batch_size, self.top)
+            proba = torch.FloatTensor(vect.size()).zero_()
+            if device is not None : proba = proba.to(device)
+            proba.scatter_(1, inds, proba_vals)              # size (batch_size, lang_size)
+        # vanilla softmax
+        else :
+            proba = F.softmax(vect, dim = 1)
+        return proba
+    
+    
+    def sampleWord(self, proba) :
+        '''Selects word indices out of a probability distribution over vocab'''
+        # choose best
+        word = proba.topk(1, dim = 1)[1] 
+        # random sampling
+        # TODO
+        return word
+    
     
     def forward(self, hidden, embeddings, device = None) :
         answer  = []
+        weights = None
         EOS_token = self.word2vec.lang.getIndex('EOS')
         SOS_token = self.word2vec.lang.getIndex('SOS')
-        word      = self.initWordTensor([SOS_token], device = device) 
-        hidden    = hidden[-self.n_layers:]                 # size (n_layers, 1, hidden_dim)
+        proba     = self.initWordTensor([SOS_token], device = device) 
+        hidden    = hidden[-self.n_layer:]                 # size (n_layers, 1, hidden_dim)
         # word generation
         for t in range(self.bound) :
-            # compute next word proba
-            vect, hidden, attn = self.generateWord(hidden, embeddings, word)
-            # compute next word index
-            word_index = vect.topk(1, dim = 1)[1].item()
+            # compute next word
+            vect, hidden, attn = self.generateWord(hidden, embeddings, proba)
+            proba = self.computeProba(vect, device)
+            word  = self.sampleWord(proba)
+            # cumulate word and attention weight
+            if word.item() != EOS_token :
+                answer.append(word.item())
+                if t == 0 : weights = attn
+                else      : weights = torch.cat((weights, attn), dim = 1) # size(1, output_length, input_length)
             # stopping criterion
-            if word_index == EOS_token : break
-            else : 
-                answer.append(word_index)
-                word = F.softmax(vect, dim = 1)             # size (1, lang_size)
-            # cumulate attention weights
-            if t == 0 : weights = attn
-            else      : weights = torch.cat((weights, attn), dim = 1) # size(1, output_length, input_length)
-        return answer, weights
+            else : break
+        return (answer, weights)

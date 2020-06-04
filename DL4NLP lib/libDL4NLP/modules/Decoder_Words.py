@@ -8,31 +8,40 @@ from torch.autograd import Variable
 
 class Decoder(nn.Module):
     '''Transforms a vector into a sequence of words'''
-    def __init__(self, word2vec, hidden_dim, 
-                 n_layers = 1,
+    def __init__(self, word2vec, hid_dim, 
+                 n_layer = 1,
                  dropout = 0.1,
-                 bound = 25
+                 bound   = 25
                 ):
-        super(Decoder, self).__init__()
+        super().__init__()
+        
         # relevant quantities
-        self.hidden_dim = hidden_dim
-        self.n_layers = n_layers
-        self.bound = bound
+        self.hid_dim = hid_dim
+        self.n_layer = n_layer
+        self.bound   = bound
         # modules
         self.word2vec = word2vec
-        self.gru = nn.GRU(word2vec.output_dim, 
-                          hidden_dim, 
-                          n_layers, 
-                          dropout = dropout, 
-                          batch_first = True)
-        self.out = nn.Linear(hidden_dim, word2vec.lang.n_words)
+        
+        self.gru = nn.GRU(
+            word2vec.out_dim,
+            hid_dim, 
+            n_layer, 
+            dropout = dropout, 
+            batch_first = True)
+        
+        self.out = nn.Linear(
+            hid_dim, 
+            word2vec.lang.n_words)
+        
         self.dropout = nn.Dropout(dropout)
+    
     
     def initWordTensor(self, index_list, device = None) :
         word = torch.LongTensor(index_list).view(-1, 1)     # size (batch_size, 1)
         word = Variable(word)                               # size (batch_size, 1)
         if device is not None : word = word.to(device)      # size (batch_size, 1)
         return word
+        
         
     def generateWord(self, hidden, word):
         '''word is a LongTensor with size (batch_size, 1)'''
@@ -42,12 +51,13 @@ class Decoder(nn.Module):
         vect      = self.out(hidden[-1])                # size (batch_size, lang_size)
         return vect, hidden
     
+    
     def forward(self, hidden, device = None) :
         answer = []
         EOS_token = self.word2vec.lang.getIndex('EOS')
         SOS_token = self.word2vec.lang.getIndex('SOS')
         word      = self.initWordTensor([SOS_token], device = device)
-        hidden    = hidden[-self.n_layers:]             # size (n_layers, 1, hidden_dim)
+        hidden    = hidden[-self.n_layer:]              # size (n_layers, 1, hidden_dim)
         # word generation
         for t in range(self.bound) :
             # compute next word proba

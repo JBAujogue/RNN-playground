@@ -31,7 +31,7 @@ class SentenceClassifier(nn.Module) :
     def __init__(self, device, tokenizer, word2vec, 
                  hidden_dim = 100, 
                  n_layer = 1, 
-                 n_attn_heads = 1, 
+                 n_head  = 1, 
                  attn_penalization = False,
                  n_class = 2, 
                  dropout = 0, 
@@ -42,7 +42,7 @@ class SentenceClassifier(nn.Module) :
         
         # relevant quantities
         self.bin_mode  = (n_class == 'binary')
-        self.opc       = (n_attn_heads == 'opc' and n_class != 'binary')
+        self.opc       = (n_head == 'opc' and n_class != 'binary')
         
         # layers
         self.tokenize  = tokenizer
@@ -55,7 +55,7 @@ class SentenceClassifier(nn.Module) :
             bidirectional = True)
         self.attention = MultiHeadSelfAttention(
             emb_dim      = self.context.out_dim, 
-            n_head       = (n_class if self.opc else n_attn_heads),
+            n_head       = (n_class if self.opc else n_head),
             penalization = attn_penalization, 
             dropout      = dropout)
         self.out = nn.Linear(
@@ -72,8 +72,10 @@ class SentenceClassifier(nn.Module) :
         self.device = device
         self.to(device)
         
+        
     def nbParametres(self) :
         return sum([p.data.nelement() for p in self.parameters() if p.requires_grad == True])
+    
     
     # main method
     def forward(self, sentence, attention_method = None) :
@@ -103,6 +105,7 @@ class SentenceClassifier(nn.Module) :
         if attention_method is not None : attention_method(attn, labels, words)
         return pred
     
+    
     # load data
     def generatePackedSentences(self, sentences, batch_size = 32) :
         def sentence2indices(words) :
@@ -126,14 +129,16 @@ class SentenceClassifier(nn.Module) :
             packed_data.append([[pack0, lengths], pack1])
         return packed_data
     
+    
     # compute model perf
     def compute_accuracy(self, sentences, batch_size = 32) :
         def compute_batch_accuracy(batch, target) :
             torch.cuda.empty_cache()
             batch_size  = batch[0].size(0)
+            lengths     = batch[1].to(self.device)
             embeddings  = self.word2vec.embedding(batch[0].to(self.device))
-            hiddens, _  = self.context(embeddings, lengths = batch[1].to(self.device))
-            out, attn   = self.attention(hiddens) # size (batch_size, n_heads, embedding_dim)
+            hiddens, _  = self.context(embeddings, lengths)
+            out, attn   = self.attention(hiddens, lengths) # size (batch_size, n_heads, embedding_dim)
             # compute score
             if self.opc : 
                 vect   = self.out(out).squeeze(2)        # size (batch_size, n_class)
@@ -159,6 +164,7 @@ class SentenceClassifier(nn.Module) :
         for batch, target in batches : score += compute_batch_accuracy(batch, target)
         return score * 100 / len(sentences)
     
+    
     # fit model
     def fit(self, batches, iters = None, epochs = None, lr = 0.025, random_state = 42,
               print_every = 10, compute_accuracy = True):
@@ -177,18 +183,19 @@ class SentenceClassifier(nn.Module) :
         
         def computeLogProbs(batch) :
             batch_size = batch[0].size(0)
-            embeddings  = self.word2vec.embedding(batch[0].to(self.device))
-            hiddens, _  = self.context(embeddings, lengths = batch[1].to(self.device))
-            out, attn, penal = self.attention(hiddens, penal = True, device = self.device) # size (batch_size, n_heads, embedding_dim)
+            lengths    = batch[1].to(self.device)
+            embeddings = self.word2vec.embedding(batch[0].to(self.device))
+            hiddens, _ = self.context(embeddings, lengths)
+            out, attn, penal = self.attention(hiddens, lengths, penal = True, device = self.device) # size (batch_size, n_heads, embedding_dim)
             # compute log probs
             if self.opc : 
-                vect   = self.out(out).squeeze(2) # size (batch_size, n_class)
+                vect   = self.out(out).squeeze(2)      # size (batch_size, n_class)
                 log_ps = F.log_softmax(vect, dim = 1)  # size (batch_size, n_class)
             elif self.bin_mode : 
-                vect   = out.view(batch_size, -1)      # size (batch_size, n_heads * embedding_dim)
+                vect   = out.view(batch_size, -1)      # size (batch_size, n_heads * emb_dim)
                 log_ps = self.out(vect).view(-1)       # size (batch_size)
             else :
-                vect   = out.view(batch_size, -1)      # size (batch_size, n_heads * embedding_dim)
+                vect   = out.view(batch_size, -1)      # size (batch_size, n_heads * emb_dim)
                 vect   = self.out(vect)                # size (batch_size, n_class)
                 log_ps = F.log_softmax(vect, dim = 1)  # size (batch_size, n_class)
             return log_ps, penal

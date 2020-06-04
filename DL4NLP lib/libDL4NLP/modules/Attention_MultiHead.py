@@ -23,31 +23,29 @@ class MultiHeadSelfAttention(nn.Module):
         # layers
         self.attn_list = nn.ModuleList([SelfAttention(emb_dim, dropout) for i in range(n_head)])
         
-    def compute_penalty(self, weights, 
-                        device = None) :
+    def compute_penalty(self, weights) :
         weights_t = weights.transpose(1, 2)
         def_pos   = [torch.mm(weights[i], weights_t[i]) for i in range(weights.size(0))] # size (batch_size, n_heads, n_heads)
-        ide       = Variable(torch.eye(self.n_head))
-        if device is not None : ide = ide.to(device)
+        ide       = Variable(torch.eye(self.n_head)).to(weights.device)
         penal     = torch.sum(torch.cat([torch.norm(mmt - ide).view(1) for mmt in def_pos]))
         return penal
     
     def forward(self, embeddings, 
-                penal = False, 
-                device = None):
+                lengths = None,
+                compute_penalty = False):
         # compute self-attention
-        outputs = [attn(embeddings) for attn in self.attn_list]
+        outputs = [attn(embeddings, lengths) for attn in self.attn_list]
         applied = torch.cat([out[0] for out in outputs], dim = 1) # size (batch_size, n_heads, embedding_dim)
         weights = torch.cat([out[1] for out in outputs], dim = 1) # size (batch_size, n_heads, input_length)
-        
+
         # compute penalty
-        if self.penalization and penal and self.n_head > 1 :
-            penal = self.compute_penalty(weights, device)
-            return applied, weights, penal
-        elif penal : 
-            return applied, weights, None
+        if self.penalization and compute_penalty and self.n_head > 1 :
+            penal = self.compute_penalty(weights)
+            return (applied, weights, penal)
+        elif compute_penalty : 
+            return (applied, weights, None)
         else :
-            return applied, weights
+            return (applied, weights)
 
 
 # -- OLD --
