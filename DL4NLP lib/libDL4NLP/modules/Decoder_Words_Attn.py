@@ -12,6 +12,7 @@ class AttnDecoder(nn.Module):
     '''Transforms a vector into a sequence of words'''
     def __init__(self, word2vec, attn_dim, hid_dim,
                  n_layer = 1,
+                 attn_method = 'concat',
                  dropout = 0.1,
                  bound   = 25,
                  temperature = 1,
@@ -20,11 +21,13 @@ class AttnDecoder(nn.Module):
         super().__init__()
         
         # relevant quantities
-        self.hid_dim = hid_dim
-        self.n_layer = n_layer
-        self.bound   = bound
-        self.temp    = temperature
-        self.top     = top
+        self.attn_dim = attn_dim
+        self.hid_dim  = hid_dim
+        self.n_layer  = n_layer
+        self.method   = attn_method
+        self.bound    = bound
+        self.temp     = temperature
+        self.top      = top
         
         # modules
         self.word2vec = word2vec
@@ -39,39 +42,35 @@ class AttnDecoder(nn.Module):
         self.attn = Attention(
             emb_dim   = attn_dim, 
             query_dim = hid_dim, 
+            method    = attn_method,
             dropout   = dropout)
         
-        self.out  = nn.Linear(
-            attn_dim + hid_dim, 
-            word2vec.lang.n_words)
+        self.out = nn.Linear(attn_dim + hid_dim, word2vec.lang.n_words)
         
         self.dropout = nn.Dropout(dropout)
     
     
     def initWordTensor(self, index_list, device = None) :
-        word = torch.LongTensor(index_list).view(-1, 1)     # size (batch_size, 1)
-        word = Variable(word)                               # size (batch_size, 1)
-        if device is not None : word = word.to(device)      # size (batch_size, 1)
+        word = torch.LongTensor(index_list).view(-1, 1)       # size (batch_size, 1)
+        word = Variable(word)                                 # size (batch_size, 1)
+        if device is not None : word = word.to(device)        # size (batch_size, 1)
         return word
         
         
-    def generateWord(self, hidden, embeddings, word):
+    def generateWord(self, hidden, word, embeddings, lengths = None):
         '''word is a LongTensor with size (batch_size, 1)'''
         # update hidden state
-        embedding = self.word2vec.embedding(word)       # size (batch_size, 1, embedding_dim)
-        embedding = self.dropout(embedding)             # size (batch_size, 1, embedding_dim)
-        _, hidden = self.gru(embedding, hidden)         # size (n_layers, batch_size, embedding_dim)
+        embedding = self.word2vec.embedding(word)             # size (batch_size, 1, emb_dim)
+        embedding = self.dropout(embedding)                   # size (batch_size, 1, emb_dim)
+        _, hidden = self.gru(embedding, hidden)               # size (n_layer, batch_size, hid_dim)
         # compute attention
-        query = hidden[-1].unsqueeze(1)                 # size (batch_size, 1, embedding_dim)
-        query = query.expand(query.size(0), 
-                             embeddings.size(1), 
-                             query.size(2))             # size (batch_size, sequence_length, embedding_dim)
-        attn, weights = self.attn(embeddings, query)    # size (batch_size, 1, embedding_dim)
+        query = self.dropout(hidden[-1].unsqueeze(1))         # size (batch_size, 1, hid_dim)
+        attn, weights = self.attn(embeddings, query, lengths) # size (batch_size, 1, attn_dim)
         # merge hidden with attention
         merge = torch.cat([hidden[-1], attn.squeeze(1)], dim = 1) 
-        merge = self.dropout(merge)                     # size (batch_size, embedding_dim + hidden_dim)
+        merge = self.dropout(merge)                           # size (batch_size, hid_dim + attn_dim)
         # generate next word
-        vect = self.out(merge)                          # size (batch_size, lang_size)
+        vect = self.out(merge)                                # size (batch_size, lang_size)
         return (vect, hidden, weights)
     
 
@@ -106,24 +105,24 @@ class AttnDecoder(nn.Module):
         return word
     
     
-    def forward(self, hidden, embeddings, device = None) :
+    def forward(self, hidden, embeddings, lengths = None, device = None) :
         answer  = []
         weights = None
         EOS_token = self.word2vec.lang.getIndex('EOS')
         SOS_token = self.word2vec.lang.getIndex('SOS')
         word      = self.initWordTensor([SOS_token], device = device)
-        hidden    = hidden[-self.n_layer:]             # size (n_layer, 1, hidden_dim)
+        hidden    = hidden[-self.n_layer:]             # size (n_layer, 1, hid_dim)
         # word generation
         for t in range(self.bound) :
             # compute next word
-            vect, hidden, attn = self.generateWord(hidden, embeddings, word)
+            vect, hidden, attn = self.generateWord(hidden, word, embeddings, lengths)
             proba = self.computeProba(vect, device)
             word  = self.sampleWord(proba)
             # cumulate word and attention weight
             if word.item() != EOS_token :
                 answer.append(word.item())
                 if t == 0 : weights = attn
-                else      : weights = torch.cat((weights, attn), dim = 1) # size(1, output_length, input_length)
+                else      : weights = torch.cat((weights, attn), dim = 1) # size(1, out_length, in_length)
             # stopping criterion
             else : break
         return (answer, weights)

@@ -46,7 +46,8 @@ class SelfAttention(nn.Module):
 class Attention(nn.Module):
     def __init__(self, emb_dim, query_dim, 
                  dropout = 0, 
-                 method = 'concat'): 
+                 method = 'concat'):
+        '''method must be chosen among [dot, concat, general]'''
         super().__init__()
         
         # relevant quantities
@@ -56,36 +57,49 @@ class Attention(nn.Module):
         
         # layers
         self.dropout = nn.Dropout(p = dropout)
-        self.key1    = HighwayQ(emb_dim, query_dim, dropout)
-        self.key2    = nn.Linear(emb_dim, 1, bias = False)
+        if method == 'concat' : 
+            self.key1 = HighwayQ(emb_dim, query_dim, dropout)
+            self.key2 = nn.Linear(emb_dim, 1, bias = False)
+        elif method == 'general' :
+            self.key = (HighwayQ(query_dim, 0, dropout) if query_dim == emb_dim else nn.Linear(query_dim, emb_dim, bias = False))
         self.value   = HighwayQ(emb_dim, 0, dropout)
         self.act     = F.softmax
 
-    def computeMask(self, lengths, max_length) :
+    def computeMask(self, lengths, emb_length) :
         # see http://juditacs.github.io/2018/12/27/masked-attention.html
-        return torch.arange(max_length).to(lengths.device)[None, :] < lengths[:, None]
+        return torch.arange(emb_length).to(lengths.device)[None, :] < lengths[:, None]
         
     def forward(self, embeddings, query = None, 
                 lengths = None):
-        '''embeddings       of size (batch_size, input_length, emb_dim)
+        '''embeddings       of size (batch_size, emb_length, emb_dim)
            query (optional) of size (batch_size, 1, emb_dim)
         '''
         # compute attention weights
-        if self.method == 'concat' :
-            weights = self.key2(self.key1(embeddings, query))  # size (batch_size, max_length, 1)
-            weights = weights.squeeze(2)           # size (batch_size, max_length)
-        elif self.method == 'dot' :
+        # dot method
+        if self.method == 'dot' :
             query   = query.transpose(1, 2)        # size (batch_size, query_dim, 1)
-            weights = torch.bmm(embeddings, query) # size (batch_size, max_length, 1)
-            weights = weights.squeeze(2)           # size (batch_size, max_length)
+            weights = torch.bmm(embeddings, query) # size (batch_size, emb_length, 1)
+        # concat method
+        elif self.method == 'concat' :
+            query   = query.expand(embeddings.size(0), 
+                                   embeddings.size(1), 
+                                   query.size(2)) if query is not None else None
+            weights = self.key1(embeddings, query) # size (batch_size, emb_length, 1)
+            weights = self.key2(weights)           # size (batch_size, emb_length, 1)
+        # general method
+        elif self.method == 'general' :
+            query   = self.key(query)              # size (batch_size, 1, query_dim)
+            query   = query.transpose(1, 2)        # size (batch_size, query_dim, 1)
+            weights = torch.bmm(embeddings, query) # size (batch_size, emb_length, 1)
         # mask attention over padded tokens
+        weights = weights.squeeze(2)               # size (batch_size, emb_length)
         if lengths is not None :
             mask = self.computeMask(lengths, weights.size(1))
-            weights[~mask] = float('-inf')     # size (batch_size, max_length)
+            weights[~mask] = float('-inf')     # size (batch_size, emb_length)
         # compute weighted sum
-        weights = self.act(weights, dim = 1)       # size (batch_size, max_length)
-        weights = weights.unsqueeze(1)             # size (batch_size, 1, max_length)
-        values  = self.value(embeddings)           # size (batch_size, max_length, emb_dim)
+        weights = self.act(weights, dim = 1)       # size (batch_size, emb_length)
+        weights = weights.unsqueeze(1)             # size (batch_size, 1, emb_length)
+        values  = self.value(embeddings)           # size (batch_size, emb_length, emb_dim)
         applied = torch.bmm(weights, values)       # size (batch_size, 1, emb_dim)
         return (applied, weights)
 

@@ -21,7 +21,10 @@ from torch.autograd import Variable
 
 from libDL4NLP.modules import (RecurrentEncoder,
                                Decoder,
-                               AttnDecoder)
+                               AttnDecoder,
+                               SmoothAttnDecoder,
+                               PAFAttnDecoder,
+                               CovAttnDecoder)
 
 
 
@@ -31,7 +34,8 @@ from libDL4NLP.modules import (RecurrentEncoder,
 
 
 class EncoderDecoder(nn.Module) :
-    def __init__(self, device, tokenizer, word2vec_in, word2vec_out, 
+    def __init__(self, device, tokenizer, word2vec_in, word2vec_out,
+                 detokenizer = None,
                  hid_dim_in = 50,
                  hid_dim_out = 50,
                  n_layer_in = 1,
@@ -39,45 +43,71 @@ class EncoderDecoder(nn.Module) :
                  bound = 25,
                  dropout = 0,
                  decoder_warm_start = True,
-                 decoder_type = None,
+                 attn_type = 'standard',
+                 attn_method = 'concat',
                  optimizer = optim.SGD
                  ):
         
         super().__init__()
         #relevant quantities
         self.decoder_warm_start = decoder_warm_start
-        self.decoder_type = decoder_type
+        self.attn_type = attn_type
+        
+        # text processing
+        self.tokenizer    = tokenizer
+        self.detokenizer  = detokenizer
         
         # modules
-        self.tokenizer    = tokenizer
         self.word2vec_in  = word2vec_in
         self.word2vec_out = word2vec_out
         
         self.context      = RecurrentEncoder(
-            emb_dim = word2vec_in.out_dim,
-            hid_dim = hid_dim_in,
-            n_layer = n_layer_in,
-            dropout = dropout, 
+            emb_dim       = word2vec_in.out_dim,
+            hid_dim       = hid_dim_in,
+            n_layer       = n_layer_in,
+            dropout       = dropout, 
             bidirectional = True)
-
-        if self.decoder_type == 'smooth' : 
-            self.decoder = SmoothAttnDecoder(
-                word2vec = word2vec_out, 
-                attn_dim = hid_dim_in, 
-                hid_dim  = hid_dim_out, 
-                n_layer  = n_layer_out, 
-                dropout  = dropout, 
-                bound    = bound,
-                top      = 5)
             
-        elif self.decoder_type == 'attention' : 
-            self.decoder = AttnDecoder(
-                word2vec = word2vec_out, 
-                attn_dim = hid_dim_in, 
-                hid_dim  = hid_dim_out, 
-                n_layer  = n_layer_out, 
-                dropout  = dropout, 
-                bound    = bound)
+        if self.attn_type == 'standard' : 
+            self.decoder    = AttnDecoder(
+                word2vec    = word2vec_out, 
+                attn_dim    = hid_dim_in, 
+                hid_dim     = hid_dim_out, 
+                n_layer     = n_layer_out,
+                attn_method = attn_method,
+                dropout     = dropout, 
+                bound       = bound)
+
+        elif self.attn_type == 'smooth' : 
+            self.decoder    = SmoothAttnDecoder(
+                word2vec    = word2vec_out, 
+                attn_dim    = hid_dim_in, 
+                hid_dim     = hid_dim_out, 
+                n_layer     = n_layer_out, 
+                attn_method = attn_method,
+                dropout     = dropout, 
+                bound       = bound,
+                top         = 5)
+            
+        elif self.attn_type == 'paf' : 
+            self.decoder    = PAFAttnDecoder(
+                word2vec    = word2vec_out, 
+                attn_dim    = hid_dim_in, 
+                hid_dim     = hid_dim_out, 
+                n_layer     = n_layer_out,
+                attn_method = attn_method,
+                dropout     = dropout, 
+                bound       = bound)
+            
+        elif self.attn_type == 'cov' : 
+            self.decoder    = CovAttnDecoder(
+                word2vec    = word2vec_out, 
+                attn_dim    = hid_dim_in, 
+                hid_dim     = hid_dim_out, 
+                n_layer     = n_layer_out,
+                attn_method = attn_method,
+                dropout     = dropout, 
+                bound       = bound)
             
         else : 
             self.decoder = Decoder(
@@ -97,21 +127,23 @@ class EncoderDecoder(nn.Module) :
         self.device = device
         self.to(device)
         
-
+        
     # count parameters
     def nbParametres(self) :
         return sum([p.data.nelement() for p in self.parameters() if p.requires_grad == True])
     
     
     # main method
-    def forward(self, sentence, attention_method = None):
+    def forward(self, sentence, mask_unk = True, attention_method = None):
         # encode sentence
-        words = self.tokenizer(sentence)
-        words = [w for w in words if self.word2vec_in.lang.getIndex(w) is not None]
-        indices = [self.word2vec_in.lang.getIndex(w) for w in words]
-        embeddings = Variable(torch.LongTensor([indices])).to(self.device)
-        embeddings = self.word2vec_in.embedding(embeddings)
-        #embeddings = self.word2vec_in(words, self.device)
+        words_native, words_in = self.tokenizer(sentence)
+        if mask_unk :
+            words_in   = [w for w in words_in if self.word2vec_in.lang.getIndex(w) is not None]
+            indices    = [self.word2vec_in.lang.getIndex(w) for w in words_in]
+            embeddings = Variable(torch.LongTensor([indices])).to(self.device)
+            embeddings = self.word2vec_in.embedding(embeddings)
+        else :
+            embeddings = self.word2vec_in(words_in, self.device)
         embeddings, hidden  = self.context(embeddings)
         # prepare for decoding
         if self.decoder_warm_start :
@@ -121,15 +153,18 @@ class EncoderDecoder(nn.Module) :
             hidden = hidden[-self.decoder.n_layer:]
         else : hidden = None    
         # compute answer
-        if self.decoder_type in ['smooth', 'attention'] : 
-            indices, attn = self.decoder(hidden, embeddings, self.device)
+        if self.attn_type in ['standard', 'smooth', 'paf', 'cov'] : 
+            indices, attn = self.decoder(hidden, embeddings, device = self.device)
             words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
+            attn = np.array(attn[0].data.cpu().numpy()) # size (out_length, in_length)
+            # detokenize generic tokens
+            if self.detokenizer is not None :
+                words_out = self.detokenizer(words_out, words_native, attn)
             # display attention
             if attention_method is not None : 
-                attn = np.array(attn[0].data.cpu().numpy()) # size (input_length, output_length)
-                attention_method(attn, words_out, words)
+                attention_method(attn, words_out, words_native)
         else :
-            indices   = self.decoder(hidden, self.device)
+            indices   = self.decoder(hidden, device = self.device)
             words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
         # convert answer to string
         answer = ' '.join(words_out)
@@ -153,9 +188,9 @@ class EncoderDecoder(nn.Module) :
             lengths1 = torch.tensor([len(p) for p in pack1])           # size (batch_size) 
             # padd packs
             pack0 = list(itertools.zip_longest(*pack0, fillvalue = self.ignore_index_in))
-            pack0 = Variable(torch.LongTensor(pack0).transpose(0, 1)) # size (batch_size, max_length0) 
+            pack0 = Variable(torch.LongTensor(pack0).transpose(0, 1)) # size (batch_size, max_length_in) 
             pack1 = list(itertools.zip_longest(*pack1, fillvalue = self.ignore_index_out))
-            pack1 = Variable(torch.LongTensor(pack1))       # WARNING : size (max_length1, batch_size) 
+            pack1 = Variable(torch.LongTensor(pack1))       # WARNING : size (max_length_out, batch_size) 
             packed_data.append([pack0, lengths0, pack1, lengths1])
         return packed_data
     
@@ -165,10 +200,11 @@ class EncoderDecoder(nn.Module) :
         def compute_batch_accuracy(batch) :
             torch.cuda.empty_cache()
             input, input_l, target, target_l = batch
-            target = target.to(self.device)
+            lengths = input_l.to(self.device)
+            target  = target.to(self.device)
             # encode sentences
             embeddings = self.word2vec_in.embedding(input.to(self.device))
-            embeddings, hidden = self.context(embeddings, lengths = input_l.to(self.device)) # size (n_layer * num_directions, batch_size, hid_dim)
+            embeddings, hidden = self.context(embeddings, lengths) # size (n_layer * num_directions, batch_size, hid_dim)
             # prepare for decoding
             if self.decoder_warm_start :
                 if self.context.bidirectional :
@@ -176,21 +212,29 @@ class EncoderDecoder(nn.Module) :
                     hidden = torch.sum(hidden, dim = 1) # size (n_layer, batch_size, hid_dim)
                 hidden = hidden[-self.decoder.n_layer:]
             else : hidden = None  
-            # compute answers
+            # init decoder states
             answers   = torch.zeros(target.size(), dtype = torch.long)
             SOS_token = self.word2vec_out.lang.getIndex('SOS')
             word      = self.decoder.initWordTensor([SOS_token]*target.size(1), device = self.device) 
-            # word generation
+            if self.attn_type == 'paf'  : context = self.decoder.initContext(input.size(0))
+            if self.attn_type == 'cov'  : context = self.decoder.initContext(input.size(0), input.size(1))
+            # compute answers
             for t in range(target.size(0)) :
+                # feeds most probable word at previous step as input for next word prediction
+                if self.attn_type == 'standard' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, word, embeddings, lengths)
+                    proba = self.decoder.computeProba(vect) # size (batch_size, lang_size)
+                    best  = self.decoder.sampleWord(proba)  # size (batch_size, 1)
+                    word  = best
                 # feeds word proba at previous step as input for next word prediction
-                if self.decoder_type == 'smooth' :
-                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                elif self.attn_type == 'smooth' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, word, embeddings, lengths)
                     proba = self.decoder.computeProba(vect) # size (batch_size, lang_size)
                     best  = self.decoder.sampleWord(proba)   # size (batch_size, 1)
                     word  = proba
-                # feeds most probable word at previous step as input for next word prediction
-                elif self.decoder_type == 'attention' :
-                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                # feeds most probable word at previous step and past attention as input for next word prediction
+                elif self.attn_type in ['paf', 'cov'] :
+                    vect, hidden, context, attn = self.decoder.generateWord(hidden, word, context, embeddings, lengths)
                     proba = self.decoder.computeProba(vect) # size (batch_size, lang_size)
                     best  = self.decoder.sampleWord(proba)  # size (batch_size, 1)
                     word  = best
@@ -238,10 +282,11 @@ class EncoderDecoder(nn.Module) :
             success = 0
             forcing = (random.random() < tf_ratio)
             input, input_l, target, target_l = batch
-            target = target.to(self.device)
+            lengths = input_l.to(self.device)
+            target  = target.to(self.device)
             # encode sentences
             embeddings = self.word2vec_in.embedding(input.to(self.device))
-            embeddings, hidden  = self.context(embeddings, lengths = input_l.to(self.device)) # size (n_layer * num_directions, batch_size, hid_dim)
+            embeddings, hidden  = self.context(embeddings, lengths) # size (n_layer * num_directions, batch_size, hid_dim)
             # init decoder state
             if self.decoder_warm_start :
                 if self.context.bidirectional :
@@ -249,18 +294,26 @@ class EncoderDecoder(nn.Module) :
                     hidden = torch.sum(hidden, dim = 1) # size (n_layer, batch_size, hid_dim)
                 hidden = hidden[-self.decoder.n_layer:]
             else : hidden = None  
-            # decode answers
+            # init decoder states
             SOS_token = self.word2vec_out.lang.getIndex('SOS')
             word      = self.decoder.initWordTensor([SOS_token]*target.size(1), device = self.device) 
+            if self.attn_type == 'paf'  : context = self.decoder.initContext(input.size(0))
+            if self.attn_type == 'cov'  : context = self.decoder.initContext(input.size(0), input.size(1))
+            # decode answers
             for t in range(target.size(0)) :
                 # feeds word proba at previous step as input for next word prediction
-                if self.decoder_type == 'smooth' :
-                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                if self.attn_type == 'standard' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, word, embeddings, lengths)
+                    if forcing : word  = target[t].view(-1, 1)    # size (batch_size, 1) 
+                    else       : word  = vect.topk(1, dim = 1)[1] # size (batch_size, 1)
+                # feeds word proba at previous step as input for next word prediction        
+                elif self.attn_type == 'smooth' :
+                    vect, hidden, attn = self.decoder.generateWord(hidden, word, embeddings, lengths)
                     if forcing : word  = self.decoder.initWordTensor(target[t].data.tolist(), device = self.device) # size (batch_size, 1) 
                     else       : word  = self.decoder.computeProba(vect) # size (batch_size, lang_size)
-                # feeds most probable word at previous step as input for next word prediction
-                elif self.decoder_type == 'attention' :
-                    vect, hidden, attn = self.decoder.generateWord(hidden, embeddings, word)
+                # feeds most probable word at previous step and past attention as input for next word prediction
+                elif self.attn_type in ['paf', 'cov'] :
+                    vect, hidden, context, attn = self.decoder.generateWord(hidden, word, context, embeddings, lengths)
                     if forcing : word  = target[t].view(-1, 1)    # size (batch_size, 1) 
                     else       : word  = vect.topk(1, dim = 1)[1] # size (batch_size, 1)
                 # feeds most probable word at previous step as input for next word prediction
@@ -288,6 +341,7 @@ class EncoderDecoder(nn.Module) :
             total = torch.sum(batch[-1]).item()
             loss, success = computeLogProbs(batch, tf_ratio, compute_accuracy)
             loss.backward()
+            nn.utils.clip_grad_norm_(self.parameters(), 5.)
             optimizer.step()
             return float(loss.item() / total), float(success * 100 / total)
         

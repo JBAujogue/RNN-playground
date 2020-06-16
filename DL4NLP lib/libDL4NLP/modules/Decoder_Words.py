@@ -45,9 +45,9 @@ class Decoder(nn.Module):
         
     def generateWord(self, hidden, word):
         '''word is a LongTensor with size (batch_size, 1)'''
-        embedding = self.word2vec.embedding(word)       # size (batch_size, 1, embedding_dim)
-        embedding = self.dropout(embedding)             # size (batch_size, 1, embedding_dim)
-        _, hidden = self.gru(embedding, hidden)         # size (n_layers, batch_size, embedding_dim)
+        embedding = self.word2vec.embedding(word)       # size (batch_size, 1, emb_dim)
+        embedding = self.dropout(embedding)             # size (batch_size, 1, emb_dim)
+        _, hidden = self.gru(embedding, hidden)         # size (n_layer, batch_size, emb_dim)
         vect      = self.out(hidden[-1])                # size (batch_size, lang_size)
         return vect, hidden
     
@@ -57,7 +57,7 @@ class Decoder(nn.Module):
         EOS_token = self.word2vec.lang.getIndex('EOS')
         SOS_token = self.word2vec.lang.getIndex('SOS')
         word      = self.initWordTensor([SOS_token], device = device)
-        hidden    = hidden[-self.n_layer:]              # size (n_layers, 1, hidden_dim)
+        hidden    = hidden[-self.n_layer:]              # size (n_layer, 1, hid_dim)
         # word generation
         for t in range(self.bound) :
             # compute next word proba

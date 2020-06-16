@@ -17,6 +17,7 @@ class HAN(nn.Module):
     - globalement multi-hopé, où il est possible d'effectuer plusieurs passes pour accumuler de l'information
     '''
     def __init__(self, emb_dim, hid_dim, query_dim,
+                 method = 'concat',
                  n_layer = 1,
                  hops = 1,
                  share = True,
@@ -42,28 +43,22 @@ class HAN(nn.Module):
         # intermediate encoder module
         self.bigru = RecurrentEncoder(emb_dim, hid_dim, n_layer, dropout, bidirectional = True)
         # second attention module
-        if share : self.attn2 = nn.ModuleList([Attention(self.bigru.out_dim, query_dim, dropout)] * hops)
-        else     : self.attn2 = nn.ModuleList([Attention(self.bigru.out_dim, query_dim, dropout) for _ in range(hops)])
+        if share : self.attn2 = nn.ModuleList([Attention(self.bigru.out_dim, query_dim, dropout, method = method)] * hops)
+        else     : self.attn2 = nn.ModuleList([Attention(self.bigru.out_dim, query_dim, dropout, method = method) for _ in range(hops)])
         # accumulation step
         self.transf = nn.Linear(self.bigru.out_dim, self.out_dim, bias = False) if (transf or (self.hops > 1 and query_dim != self.bigru.out_dim)) else None
         
         
     def singlePass(self, packed_embeddings, query, attn1, attn2, lengths): 
         # first attention
-        query1 = query.expand(packed_embeddings.size(0), 
-                              packed_embeddings.size(1), 
-                              query.size(2)) if query is not None else None
-        output, weights1 = attn1(packed_embeddings, query1, lengths) # size (dialogue_length, 1, emb_dim)
+        output, weights1 = attn1(packed_embeddings, query, lengths) # size (dialogue_length, 1, emb_dim)
         # intermediate biGRU
-        output, _ = self.bigru(output.transpose(0, 1))               # size (1, dialogue_length, hid_dim)
+        output, _ = self.bigru(output.transpose(0, 1))              # size (1, dialogue_length, hid_dim)
         output = self.dropout(output)
         # second attention
-        query2 = query.expand(output.size(0), 
-                              output.size(1), 
-                              query.size(2)) if query is not None else None
-        output, weights2 = attn2(output, query2)                     # size (1, dialogue_length, hid_dim)
+        output, weights2 = attn2(output, query)                     # size (1, dialogue_length, hid_dim)
         # output decision vector
-        if self.transf is not None : output = self.transf(output)    # size (1, 1, out_dim)
+        if self.transf is not None : output = self.transf(output)   # size (1, 1, out_dim)
         if query is not None       : output = output + query
         return (output, weights1, weights2)
         

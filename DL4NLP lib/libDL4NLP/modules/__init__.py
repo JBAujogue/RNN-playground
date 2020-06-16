@@ -10,6 +10,8 @@ from .Decoder_Classes import ClassDecoder
 from .Decoder_Words import Decoder, WordsDecoder
 from .Decoder_Words_Attn import AttnDecoder, AttnWordsDecoder
 from .Decoder_Words_Attn_Smooth import SmoothAttnDecoder
+from .Decoder_Words_Attn_PAF import PAFAttnDecoder
+from .Decoder_Words_Attn_Cov import CovAttnDecoder
 from .Decoder_Words_LM import LMWordsDecoder
 
 
@@ -33,4 +35,6 @@ __all__ = [
     'AttnDecoder',
     'AttnWordsDecoder',
     'SmoothAttnDecoder',
+    'PAFAttnDecoder',
+    'CovAttnDecoder',
     'LMWordsDecoder']
