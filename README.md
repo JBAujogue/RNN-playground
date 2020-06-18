@@ -1,4 +1,4 @@
-#\begin{center} Deep Learning for NLP \end{center}
+# _Deep Learning for NLP_
 A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks.
 
 
@@ -57,12 +57,11 @@ Tasks :
 | Bidirectionnal GRUs |
 | Highway Connections |
  
- 
- # Part II 
 
-## II - 1 Text Classification
 
-## II - 2 Sequence to sequence
+# II - 1 Text Classification
+
+# II - 2 Sequence to sequence
 
 Tasks :
 
