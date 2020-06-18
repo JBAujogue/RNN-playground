@@ -1,4 +1,4 @@
-# Deep Learning for NLP
+#\begin{center} Deep Learning for NLP \end{center}
 A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks.
 
 
