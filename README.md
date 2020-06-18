@@ -7,13 +7,19 @@ A series of Jupyter Notebooks describing Pytorch implementations of models solvi
 
 ## I - 1 Word Embedding 
 
+ Tasks :
+
+- **Word Embedding**
+
 This notebook presents a Pytorch Word2Vec model, trainable following either a CBOW or a Skip-Gram objective, along with a demonstration of Gensim's Word2Vec and FastText models
 
 ## I - 2 Sentence Classification
 
-This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through self-attention. Tasks that are considered :
+ Tasks :
 
 - **Binary and Multi-Class Sequence Classification**
+
+This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through Multi-head self-attention.
 
 | Implemented Features |
 |-----|
@@ -28,10 +34,11 @@ This notebook presents a Sentence Classification model, with word embedding perf
 
 ## I - 3 Language Modeling
 
-This notebook presents a Language Model on top of pretrained custom, Gensim and FastText Word2Vec models.
-Tasks that are considered :
+Tasks :
 
 - **Next Word Prediction**
+
+This notebook presents a Language Model on top of pretrained custom, Gensim and FastText Word2Vec models.
 
 | Implemented Features |
 |-----|
@@ -40,12 +47,11 @@ Tasks that are considered :
 
 ## I - 4 Sequence labelling
 
-Tasks that are considered :
+Tasks :
 
 - **Masked Language Modeling**
 - **Part Of Speech Tagging**
 
-Implemented Features :
 
 | Implemented Features |
 |-----|
@@ -60,6 +66,7 @@ Implemented Features :
 
 ## II - 2 Sequence to sequence
 
-Tasks that are considered :
+Tasks :
 
 - **Machine Translation**
+- **Open Domain Chatbot**
