@@ -72,8 +72,7 @@ Tasks :
 |-----|
 | Minibatch training |
 | Bidirectional GRUs |
-| Attention Mechanism (dot, general & concat methods) |
+| Attention Mechanism |
 | Highway Connections in Attention |
-| Decoding with Label smoothing |
-| Collaborative vs. Competitive head behavior |
+| Decoder with various architectures : Smoothed Past Token Feeding / Content-based Past Attention Feeding / Position-based Past Attention Feeding |
 | 2 methods for Attention Visualization |
