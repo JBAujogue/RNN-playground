@@ -17,15 +17,15 @@ This notebook presents a Sentence Classification model, with word embedding perf
 |-----|
 |Binary and Multi-Class Classification|
 
-| Tasks | | Implemented Features |
-|-----|-----|-----|
-|Binary and Multi-Class Classification | | Minibatch training |
-| | | Bidirectional GRUs |
-| | | Self-Attention & Multi-Head Self-Attention |
-| | | Highway Connections in (MH) Self-Attention |
-| | | Penalization over distinct heads |
-| | | Collaborative vs. Competitive head behavior |
-| | | 2 methods for Attention Visualization |
+| Implemented Features |
+|:-----:|
+| Minibatch training |
+| Bidirectional GRUs |
+| Self-Attention & Multi-Head Self-Attention |
+| Highway Connections in (MH) Self-Attention |
+| Penalization over distinct heads |
+| Collaborative vs. Competitive head behavior |
+| 2 methods for Attention Visualization |
 
 
 ## I - 3 Language Modeling
