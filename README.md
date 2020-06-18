@@ -33,10 +33,15 @@ This notebook presents a Language Model on top of pretrained custom, Gensim and 
 
 ## I - 4 Sequence labelling
 
+Development contexts :
+
+- **Masked Language Modeling**
+- **Part Of Speech Tagging**
+
 Experimentations include :
    
  - POS Tagging
- - Token Auto-encoding following Cloze Task
+ - Masked Language Modeling
  - Minibatch-enabled training
  - Bidirectionnal GRUs
  - Highway Connections
@@ -48,4 +53,6 @@ Experimentations include :
 
 ## II - 2 Sequence to sequence
 
-\t a - Machine Translation
+
+
+- a - Machine Translation
