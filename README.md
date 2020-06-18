@@ -13,21 +13,19 @@ This notebook presents a Pytorch Word2Vec model, trainable following either a CB
 
 This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through self-attention. 
 
-| Tasks | Implemented Features |
-|-----|-----|
-|Binary and Multi-Class Classification| Minibatch training |
-|  | Bidirectional GRUs |
+| Tasks |
+|-----|
+|Binary and Multi-Class Classification|
 
-
-Implemented Features :
-
- - Minibatch training
- - Bidirectional GRUs
- - Self-Attention & Multi-Head Self-Attention
- - Highway Connections in (MH) Self-Attention
- - Penalization over distinct heads
- - Collaborative vs. Competitive head behavior
- - 2 methods for Attention Visualization
+| Implemented Features |
+|-----|
+| Minibatch training |
+| Bidirectional GRUs |
+| Self-Attention & Multi-Head Self-Attention |
+| Highway Connections in (MH) Self-Attention |
+| Penalization over distinct heads |
+| Collaborative vs. Competitive head behavior |
+| 2 methods for Attention Visualization |
 
 
 ## I - 3 Language Modeling
