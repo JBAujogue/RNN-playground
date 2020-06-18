@@ -1,9 +1,43 @@
+<div style="font-variant: small-caps; 
+      font-weight: normal; 
+      font-size: 30px; 
+      text-align: center; 
+      padding: 15px; 
+      margin: 10px;">
+  Deep Learning for NLP
+  </div> 
+  
+<div style="font-variant: small-caps; 
+      font-weight: normal; 
+      font-size: 30px; 
+      text-align: center; 
+      padding: 15px; 
+      margin: 10px;">
+    <font color=orange>II - 2 </font>
+  Sequence to Sequence
+  </div> 
+
+  <div style="
+      font-weight: normal; 
+      font-size: 20px; 
+      text-align: center; 
+      padding: 15px;">
+    a. Machine Translation
+  </div> 
+
+  <div style=" float:right; 
+      font-size: 12px; 
+      line-height: 12px; 
+  padding: 10px 15px 8px;">
+  Jean-baptiste AUJOGUE
+  </div> 
+
 # _Deep Learning for NLP_
 A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks.
 
 
 
-## [I - 1 Word Embedding]
+## I - 1 Word Embedding
 
  Tasks :
 
@@ -11,7 +45,7 @@ A series of Jupyter Notebooks describing Pytorch implementations of models solvi
 
 This notebook presents a Pytorch Word2Vec model, trainable following either a CBOW or a Skip-Gram objective, along with a demonstration of Gensim's Word2Vec and FastText models
 
-## [I - 2 Sentence Classification]
+## I - 2 Sentence Classification
 
  Tasks :
 
