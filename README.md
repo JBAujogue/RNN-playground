@@ -3,7 +3,7 @@ A series of Jupyter Notebooks describing Pytorch implementations of models solvi
 
 
 
-## [I - 1 Word Embedding]()
+## [I - 1 Word Embedding](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
 
  Tasks :
 
@@ -11,7 +11,7 @@ A series of Jupyter Notebooks describing Pytorch implementations of models solvi
 
 This notebook presents a Pytorch Word2Vec model, trainable following either a CBOW or a Skip-Gram objective, along with a demonstration of Gensim's Word2Vec and FastText models
 
-## I - 2 Sentence Classification
+## [I - 2 Sentence Classification](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
 
  Tasks :
 
@@ -30,7 +30,7 @@ This notebook presents a Sentence Classification model, with word embedding perf
 | 2 methods for Attention Visualization |
 
 
-## I - 3 Language Modeling
+## [I - 3 Language Modeling](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
 
 Tasks :
 
@@ -43,7 +43,7 @@ This notebook presents a Language Model on top of pretrained custom, Gensim and 
 | Minibatch training |
 | Unidirectionnal GRUs |
 
-## I - 4 Sequence labelling
+## [I - 4 Sequence labelling](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
 
 Tasks :
 
@@ -59,9 +59,9 @@ Tasks :
  
 
 
-## II - 1 Text Classification
+## [II - 1 Text Classification](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
 
-## II - 2 Sequence to sequence
+## [II - 2 Sequence to sequence](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
 
 Tasks :
 
