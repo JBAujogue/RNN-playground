@@ -3,9 +3,7 @@ A series of Jupyter Notebooks describing Pytorch implementations of models solvi
 
 
 
-# Part I 
-
-## I - 1 Word Embedding 
+# I - 1 Word Embedding 
 
  Tasks :
 
@@ -13,7 +11,7 @@ A series of Jupyter Notebooks describing Pytorch implementations of models solvi
 
 This notebook presents a Pytorch Word2Vec model, trainable following either a CBOW or a Skip-Gram objective, along with a demonstration of Gensim's Word2Vec and FastText models
 
-## I - 2 Sentence Classification
+# I - 2 Sentence Classification
 
  Tasks :
 
@@ -32,7 +30,7 @@ This notebook presents a Sentence Classification model, with word embedding perf
 | 2 methods for Attention Visualization |
 
 
-## I - 3 Language Modeling
+# I - 3 Language Modeling
 
 Tasks :
 
@@ -45,7 +43,7 @@ This notebook presents a Language Model on top of pretrained custom, Gensim and 
 | Minibatch training |
 | Unidirectionnal GRUs |
 
-## I - 4 Sequence labelling
+# I - 4 Sequence labelling
 
 Tasks :
 
