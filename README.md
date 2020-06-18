@@ -11,13 +11,18 @@ This notebook presents a Pytorch Word2Vec model, trainable following either a CB
 
 ## I - 2 Sentence Classification
 
-This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through self-attention. Experimentations include :
- 
- - Binary and Multi-Class Classification
- - Minibatch-enabled training
- - Bidirectional GRUs & Self-Attention
- - Highway Connections in Self-Attention
- - Multi-Head Self-Attention
+This notebook presents a Sentence Classification model, with word embedding performed by either pretrained custom, Gensim or FastText Word2Vec models. Contextualization is done by multiple stacked GRUs, and important parts of the sentence are identified through self-attention. 
+
+Tasks :
+
+- **Binary and Multi-Class Classification**
+
+Implemented Features :
+
+ - Minibatch training
+ - Bidirectional GRUs
+ - Self-Attention & Multi-Head Self-Attention
+ - Highway Connections in (MH) Self-Attention
  - Penalization over distinct heads
  - Collaborative vs. Competitive head behavior
  - 2 methods for Attention Visualization
@@ -26,23 +31,27 @@ This notebook presents a Sentence Classification model, with word embedding perf
 ## I - 3 Language Modeling
 
 This notebook presents a Language Model on top of pretrained custom, Gensim and FastText Word2Vec models.
+Tasks :
 
- - Next Word Prediction
- - Minibatch-enabled training
+- **Next Word Prediction**
+
+Implemented Features :
+
+ - Minibatch training
  - Unidirectionnal GRUs
 
 ## I - 4 Sequence labelling
 
-Development contexts :
+Tasks :
 
 - **Masked Language Modeling**
 - **Part Of Speech Tagging**
 
-Experimentations include :
+Implemented Features :
    
  - POS Tagging
  - Masked Language Modeling
- - Minibatch-enabled training
+ - Minibatch training
  - Bidirectionnal GRUs
  - Highway Connections
  
@@ -53,6 +62,6 @@ Experimentations include :
 
 ## II - 2 Sequence to sequence
 
+Tasks :
 
-
-- a - Machine Translation
+- **Machine Translation**
