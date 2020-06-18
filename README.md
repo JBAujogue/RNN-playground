@@ -40,4 +40,12 @@ Experimentations include :
  - Minibatch-enabled training
  - Bidirectionnal GRUs
  - Highway Connections
-    
+ 
+ 
+ # Part II 
+
+## II - 1 Text Classification
+
+## II - 2 Sequence to sequence
+
+### a - Machine Translation
