@@ -48,4 +48,4 @@ Experimentations include :
 
 ## II - 2 Sequence to sequence
 
-### a - Machine Translation
+\t a - Machine Translation
