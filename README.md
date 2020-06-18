@@ -74,5 +74,7 @@ Tasks :
 | Bidirectional GRUs |
 | Attention Mechanism |
 | Highway Connections in Attention |
-| Decoder with various architectures : Smoothed Past Token Feeding / Content-based Past Attention Feeding / Position-based Past Attention Feeding |
+| Decoder with Smoothed Past Token Feeding |
+| Decoder with Content-based Past Attention Feeding |
+| Decoder with Position-based Past Attention Feeding |
 | 2 methods for Attention Visualization |
