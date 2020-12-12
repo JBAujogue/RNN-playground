@@ -19,12 +19,14 @@ import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
 
-from libDL4NLP.modules import (RecurrentEncoder,
-                               Decoder,
-                               AttnDecoder,
-                               SmoothAttnDecoder,
-                               PAFAttnDecoder,
-                               CovAttnDecoder)
+from libDL4NLP.modules import (
+    RecurrentEncoder,
+    Decoder,
+    AttnDecoder,
+    SmoothAttnDecoder,
+    PAFAttnDecoder,
+    CovAttnDecoder,
+)
 
 
 
@@ -34,19 +36,20 @@ from libDL4NLP.modules import (RecurrentEncoder,
 
 
 class EncoderDecoder(nn.Module) :
-    def __init__(self, device, tokenizer, word2vec_in, word2vec_out,
-                 detokenizer = None,
-                 hid_dim_in = 50,
-                 hid_dim_out = 50,
-                 n_layer_in = 1,
-                 n_layer_out = 1,
-                 bound = 25,
-                 dropout = 0,
-                 decoder_warm_start = True,
-                 attn_type = 'standard',
-                 attn_method = 'concat',
-                 optimizer = optim.SGD
-                 ):
+    def __init__(
+        self, device, tokenizer, word2vec_in, word2vec_out,
+        detokenizer = None,
+        hid_dim_in = 50,
+        hid_dim_out = 50,
+        n_layer_in = 1,
+        n_layer_out = 1,
+        bound = 25,
+        dropout = 0,
+        decoder_warm_start = True,
+        attn_type = 'standard',
+        attn_method = 'concat',
+        optimizer = optim.SGD,
+        ):
         
         super().__init__()
         #relevant quantities
@@ -135,7 +138,8 @@ class EncoderDecoder(nn.Module) :
     
     # main method
     def forward(self, sentence, mask_unk = True, attention_method = None):
-        # encode sentence
+        
+        # sentence encoding
         words_native, words_in = self.tokenizer(sentence)
         if mask_unk :
             words_in   = [w for w in words_in if self.word2vec_in.lang.getIndex(w) is not None]
@@ -145,27 +149,32 @@ class EncoderDecoder(nn.Module) :
         else :
             embeddings = self.word2vec_in(words_in, self.device)
         embeddings, hidden  = self.context(embeddings)
+        
         # prepare for decoding
         if self.decoder_warm_start :
             if self.context.bidirectional :
                 hidden = hidden.view(self.context.n_layer, 2, -1, self.context.hid_dim)
                 hidden = torch.sum(hidden, dim = 1) # size (n_layer, batch_size, hid_dim)
             hidden = hidden[-self.decoder.n_layer:]
-        else : hidden = None    
+        else : hidden = None   
+            
         # compute answer
         if self.attn_type in ['standard', 'smooth', 'paf', 'cov'] : 
             indices, attn = self.decoder(hidden, embeddings, device = self.device)
             words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
             attn = np.array(attn[0].data.cpu().numpy()) # size (out_length, in_length)
+            
             # detokenize generic tokens
             if self.detokenizer is not None :
                 words_out = self.detokenizer(words_out, words_native, attn)
+                
             # display attention
             if attention_method is not None : 
                 attention_method(attn, words_out, words_native)
         else :
             indices   = self.decoder(hidden, device = self.device)
             words_out = [self.word2vec_out.lang.index2word[i] for i in indices]
+            
         # convert answer to string
         answer = ' '.join(words_out)
         return answer
@@ -216,8 +225,8 @@ class EncoderDecoder(nn.Module) :
             answers   = torch.zeros(target.size(), dtype = torch.long)
             SOS_token = self.word2vec_out.lang.getIndex('SOS')
             word      = self.decoder.initWordTensor([SOS_token]*target.size(1), device = self.device) 
-            if self.attn_type == 'paf'  : context = self.decoder.initContext(input.size(0))
-            if self.attn_type == 'cov'  : context = self.decoder.initContext(input.size(0), input.size(1))
+            if self.attn_type == 'paf'  : context = self.decoder.initContext(input.size(0)).to(self.device)
+            if self.attn_type == 'cov'  : context = self.decoder.initContext(input.size(0), input.size(1)).to(self.device)
             # compute answers
             for t in range(target.size(0)) :
                 # feeds most probable word at previous step as input for next word prediction
@@ -297,8 +306,8 @@ class EncoderDecoder(nn.Module) :
             # init decoder states
             SOS_token = self.word2vec_out.lang.getIndex('SOS')
             word      = self.decoder.initWordTensor([SOS_token]*target.size(1), device = self.device) 
-            if self.attn_type == 'paf'  : context = self.decoder.initContext(input.size(0))
-            if self.attn_type == 'cov'  : context = self.decoder.initContext(input.size(0), input.size(1))
+            if self.attn_type == 'paf'  : context = self.decoder.initContext(input.size(0)).to(self.device)
+            if self.attn_type == 'cov'  : context = self.decoder.initContext(input.size(0), input.size(1)).to(self.device)
             # decode answers
             for t in range(target.size(0)) :
                 # feeds word proba at previous step as input for next word prediction
