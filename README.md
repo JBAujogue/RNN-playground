@@ -1,6 +1,6 @@
 # _Deep Learning for NLP_
 A series of Jupyter Notebooks describing Pytorch implementations of models solving a large set of NLP tasks.
-
+_This word is still under development._
 
 
 ## I - 1 [Word Embedding](https://github.com/JBAujogue/Deep-Learning-for-NLP/tree/master/DL4NLP%20notebooks)
